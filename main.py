@@ -12,6 +12,7 @@ Usage:
     python main.py speed        # quick download speed estimate
     python main.py scan         # discover devices on the local network
     python main.py watch        # live stability monitor (Ctrl-C to stop)
+    python main.py gui          # open the web GUI in your browser
     python main.py --json       # full diagnosis, JSON output
     python main.py --open       # auto-open the captive portal login page
 
@@ -24,43 +25,10 @@ import sys
 import time
 import webbrowser
 
-from src import captive, connectivity, dnscheck, history, netinfo
-from src import network_discovery, services, speed, watch
+from src import captive, dnscheck, gui, history
+from src import network_discovery, services, speed, verdict, watch
+from src.fullcheck import run_full
 from src.reporting import Report, bold, cyan
-
-
-def run_full(report, include_speed=False):
-    findings = {}
-
-    report.section("Network")
-    findings["network"] = netinfo.collect(report)
-
-    report.section("Connectivity")
-    findings["connectivity"] = connectivity.collect(
-        report, gateway=findings["network"].get("gateway"))
-
-    # If there is no internet at the IP level, portal/DNS/service checks
-    # would all fail for the same root cause — still run the portal check
-    # (a portal is the most likely explanation), skip the rest.
-    online = findings["connectivity"].get("internet", False)
-
-    report.section("Captive portal & interception")
-    findings["portal"] = captive.collect(report)
-
-    if online and not findings["portal"].get("captive_portal"):
-        report.section("DNS")
-        findings["dns"] = dnscheck.collect(report)
-
-        report.section("Services & ports")
-        findings["services"] = services.collect(report)
-
-        if include_speed:
-            report.section("Speed")
-            findings["speed"] = speed.collect(report)
-    elif findings["portal"].get("captive_portal"):
-        print(cyan("\n  Skipping DNS/service checks until you log in to the portal."))
-
-    return findings
 
 
 def main():
@@ -70,7 +38,8 @@ def main():
     )
     parser.add_argument(
         "command", nargs="?", default="check",
-        choices=["check", "portal", "dns", "services", "speed", "scan", "watch"],
+        choices=["check", "portal", "dns", "services", "speed", "scan",
+                 "watch", "gui"],
         help="what to run (default: full check)",
     )
     parser.add_argument("--speed", action="store_true",
@@ -81,6 +50,10 @@ def main():
                         help="open the captive portal login page in the browser")
     parser.add_argument("-i", "--interval", type=float, default=5.0,
                         help="probe interval in seconds for watch (default: 5)")
+    parser.add_argument("--port", type=int, default=8765,
+                        help="port for the gui server (default: 8765)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="gui: don't auto-open the browser")
     args = parser.parse_args()
 
     if args.command == "watch":
@@ -90,20 +63,21 @@ def main():
             pass
         return 0
 
-    report = Report()
-    if args.as_json:
-        # Silence the live output; we only want the JSON at the end.
-        import src.reporting as reporting
-        reporting.print_result = lambda r: None
-        report.section = lambda title: None
+    if args.command == "gui":
+        gui.serve(port=args.port, open_browser=not args.no_browser)
+        return 0
+
+    report = Report(quiet=args.as_json)
 
     start = time.monotonic()
     if not args.as_json:
         print(bold("network-manager") + " — diagnosing the current network…")
 
+    diagnosis = None
     if args.command == "check":
         findings = run_full(report, include_speed=args.speed)
         history.compare(report, findings)
+        diagnosis = verdict.diagnose(findings)
     elif args.command == "portal":
         report.section("Captive portal & interception")
         findings = captive.collect(report)
@@ -129,11 +103,15 @@ def main():
 
     elapsed = time.monotonic() - start
     if args.as_json:
-        print(json.dumps({"findings": findings, **report.to_dict(),
-                          "elapsed_seconds": round(elapsed, 1)},
-                         indent=2, default=str))
+        payload = {"findings": findings, **report.to_dict(),
+                   "elapsed_seconds": round(elapsed, 1)}
+        if diagnosis:
+            status, headline, action = diagnosis
+            payload["verdict"] = {"status": status, "headline": headline,
+                                  "action": action}
+        print(json.dumps(payload, indent=2, default=str))
     else:
-        report.summary()
+        report.summary(verdict=diagnosis)
         print(f"\n  Done in {elapsed:.1f}s.")
 
     # Exit code 1 if any hard failures — usable in scripts.
