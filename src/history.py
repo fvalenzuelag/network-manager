@@ -44,6 +44,9 @@ def snapshot(findings):
         "blocked": sorted(services["blocked"]) if services else None,
         "open": sorted(services["open"]) if services else None,
         "download_mbps": speed.get("download_mbps"),
+        "wifi_rssi_dbm": (findings.get("wifi") or {}).get("rssi_dbm"),
+        "egress_country": (findings.get("egress") or {}).get("country"),
+        "egress_colo": (findings.get("egress") or {}).get("colo"),
     }
 
 

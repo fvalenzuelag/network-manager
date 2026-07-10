@@ -48,34 +48,53 @@ class CheckResult:
     status: str  # "ok" | "fail" | "warn" | "info"
     detail: str = ""
     advice: str = ""
+    section: str = ""
 
 
 @dataclass
 class Report:
-    """Collects results across all checks and renders the final summary."""
+    """Collects results across all checks and renders the final summary.
+
+    With quiet=True nothing is printed live — used by the JSON output and
+    the GUI, which read `results` themselves.
+    """
 
     results: list = field(default_factory=list)
+    quiet: bool = False
+    current_section: str = ""
 
     def add(self, name, status, detail="", advice=""):
-        result = CheckResult(name, status, detail, advice)
+        result = CheckResult(name, status, detail, advice, self.current_section)
         self.results.append(result)
-        print_result(result)
+        if not self.quiet:
+            print_result(result)
         return result
 
     def section(self, title):
+        self.current_section = title
+        if self.quiet:
+            return
         print()
         print(bold(cyan(f"── {title} ")) + cyan("─" * max(0, 50 - len(title))))
 
     def problems(self):
         return [r for r in self.results if r.status in ("fail", "warn")]
 
-    def summary(self):
+    def summary(self, verdict=None):
         print()
         print(bold(cyan("── Summary ")) + cyan("─" * 39))
+        if verdict:
+            status, headline, action = verdict
+            print(f"  {STATUS_ICONS.get(status, ' ')} {bold(headline)}")
+            if action:
+                print(f"    {yellow('→')} {action}")
         problems = self.problems()
         if not problems:
-            print(f"  {green('✔')} {bold('Network looks healthy.')} No issues detected.")
+            if not verdict:
+                print(f"  {green('✔')} {bold('Network looks healthy.')} No issues detected.")
             return
+        if verdict:
+            print()
         fails = [r for r in problems if r.status == "fail"]
         warns = [r for r in problems if r.status == "warn"]
         print(f"  {bold(f'{len(fails)} problem(s), {len(warns)} warning(s) found:')}")
