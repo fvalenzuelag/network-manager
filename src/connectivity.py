@@ -4,11 +4,13 @@ The internet check uses a direct IP (no DNS) so we can tell "no internet"
 apart from "DNS is broken".
 """
 
+import re
 import socket
 import statistics
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 LATENCY_TARGETS = [("1.1.1.1", 443), ("8.8.8.8", 443)]
 
@@ -43,6 +45,26 @@ def tcp_connect_ms(host, port, timeout=3.0):
             return (time.monotonic() - start) * 1000
     except OSError:
         return None
+
+
+def packet_loss(host, count=15, interval=0.2):
+    """Send a quick ping burst and return the loss percentage.
+
+    Returns None when nothing came back at all — that means ICMP is blocked
+    or the host is down, which is not the same signal as partial loss.
+    (0.2 s is the shortest interval allowed without root on macOS/Linux.)
+    """
+    cmd = ["ping", "-c", str(count), "-i", str(interval), host]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=count * interval + 8)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"([\d.]+)% packet loss", out.stdout)
+    if not m:
+        return None
+    loss = float(m.group(1))
+    return None if loss >= 100 else loss
 
 
 def check_ipv6():
@@ -142,6 +164,42 @@ def collect(report, gateway=None):
                     "Very high latency (satellite/in-flight grade). Prefer "
                     "async work; avoid video calls.",
                 )
+
+        # Measure loss to the gateway and to the internet in parallel:
+        # loss to the gateway = bad Wi-Fi link; loss only beyond it = the
+        # venue's uplink is the problem and nothing local will help.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            gw_future = pool.submit(packet_loss, gateway) if gateway else None
+            net_future = pool.submit(packet_loss, "1.1.1.1")
+            gw_loss = gw_future.result() if gw_future else None
+            net_loss = net_future.result()
+        findings["loss_gateway_pct"] = gw_loss
+        findings["loss_internet_pct"] = net_loss
+
+        if gw_loss is not None:
+            if gw_loss >= 5:
+                report.add(
+                    "Packet loss — Wi-Fi link", "warn", f"{gw_loss:.0f}% to gateway",
+                    "Your link to the router is dropping packets — usually "
+                    "weak signal. Move closer to the access point.",
+                )
+            else:
+                report.add("Packet loss — Wi-Fi link", "ok", f"{gw_loss:.0f}%")
+        if net_loss is not None:
+            if net_loss >= 5 and (gw_loss is None or gw_loss < 5):
+                report.add(
+                    "Packet loss — internet path", "warn", f"{net_loss:.0f}%",
+                    "Packets are lost beyond the router — the venue's uplink "
+                    "is congested. Moving around won't help; expect dropped "
+                    "calls, retry later or use mobile data.",
+                )
+            elif net_loss >= 5:
+                report.add("Packet loss — internet path", "warn", f"{net_loss:.0f}%")
+            else:
+                report.add("Packet loss — internet path", "ok", f"{net_loss:.0f}%")
+        elif gw_loss is not None:
+            report.add("Packet loss — internet path", "info",
+                       "can't measure (ICMP blocked upstream)")
     else:
         report.add(
             "Internet (direct IP, no DNS)", "fail", "no route to the internet",

@@ -100,24 +100,28 @@ def collect(report):
             findings["blocked"].append(name)
             report.add(name, "fail", "blocked or filtered", advice)
 
-    if check_udp_dns():
-        findings["open"].append("UDP DNS")
-        report.add("UDP — DNS (8.8.8.8:53)", "ok", "reachable")
+    # UDP probes get the same one-lost-packet tolerance as the TCP checks.
+    udp_dns_name = "UDP — DNS (8.8.8.8:53)"
+    if any(check_udp_dns() for _ in range(2)):
+        findings["open"].append(udp_dns_name)
+        report.add(udp_dns_name, "ok", "reachable")
     else:
-        findings["blocked"].append("UDP DNS")
+        findings["blocked"].append(udp_dns_name)
         report.add(
-            "UDP — DNS (8.8.8.8:53)", "fail", "blocked or filtered",
+            udp_dns_name, "fail", "blocked or filtered",
             "UDP to public DNS is blocked — common on restrictive networks. "
             "VPNs that use UDP (WireGuard, OpenVPN/UDP) will likely fail "
             "too; try a TCP-based VPN on port 443.",
         )
 
-    if check_ntp():
-        report.add("UDP — NTP time sync (123)", "ok", "reachable")
+    ntp_name = "UDP — NTP time sync (123)"
+    if any(check_ntp() for _ in range(2)):
+        findings["open"].append(ntp_name)
+        report.add(ntp_name, "ok", "reachable")
     else:
-        findings["blocked"].append("NTP")
+        findings["blocked"].append(ntp_name)
         report.add(
-            "UDP — NTP time sync (123)", "warn", "blocked or filtered",
+            ntp_name, "warn", "blocked or filtered",
             "Time sync is blocked. If your clock drifts, HTTPS sites may "
             "show certificate errors.",
         )

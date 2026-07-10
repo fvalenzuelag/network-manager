@@ -11,7 +11,9 @@ Usage:
     python main.py services     # which ports/services are blocked
     python main.py speed        # quick download speed estimate
     python main.py scan         # discover devices on the local network
+    python main.py watch        # live stability monitor (Ctrl-C to stop)
     python main.py --json       # full diagnosis, JSON output
+    python main.py --open       # auto-open the captive portal login page
 
 Requires only the Python standard library — nothing to install.
 """
@@ -20,9 +22,10 @@ import argparse
 import json
 import sys
 import time
+import webbrowser
 
-from src import captive, connectivity, dnscheck, netinfo, services, speed
-from src import network_discovery
+from src import captive, connectivity, dnscheck, history, netinfo
+from src import network_discovery, services, speed, watch
 from src.reporting import Report, bold, cyan
 
 
@@ -67,14 +70,25 @@ def main():
     )
     parser.add_argument(
         "command", nargs="?", default="check",
-        choices=["check", "portal", "dns", "services", "speed", "scan"],
+        choices=["check", "portal", "dns", "services", "speed", "scan", "watch"],
         help="what to run (default: full check)",
     )
     parser.add_argument("--speed", action="store_true",
                         help="include a download speed test in the full check")
     parser.add_argument("--json", action="store_true", dest="as_json",
                         help="print results as JSON instead of the report")
+    parser.add_argument("--open", action="store_true", dest="open_portal",
+                        help="open the captive portal login page in the browser")
+    parser.add_argument("-i", "--interval", type=float, default=5.0,
+                        help="probe interval in seconds for watch (default: 5)")
     args = parser.parse_args()
+
+    if args.command == "watch":
+        try:
+            watch.run(interval=max(1.0, args.interval))
+        except KeyboardInterrupt:
+            pass
+        return 0
 
     report = Report()
     if args.as_json:
@@ -89,6 +103,7 @@ def main():
 
     if args.command == "check":
         findings = run_full(report, include_speed=args.speed)
+        history.compare(report, findings)
     elif args.command == "portal":
         report.section("Captive portal & interception")
         findings = captive.collect(report)
@@ -104,6 +119,13 @@ def main():
     elif args.command == "scan":
         report.section("Local network scan")
         findings = network_discovery.collect(report)
+
+    portal_url = (findings.get("portal") or findings).get("portal_url") \
+        if isinstance(findings, dict) else None
+    if args.open_portal and portal_url:
+        webbrowser.open(portal_url)
+        if not args.as_json:
+            print(cyan(f"\n  Opened portal login page: {portal_url}"))
 
     elapsed = time.monotonic() - start
     if args.as_json:
