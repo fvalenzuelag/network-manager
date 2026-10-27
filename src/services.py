@@ -53,15 +53,20 @@ def _connect_v4(host, port, timeout=TIMEOUT):
 
 
 def _check_tcp(svc):
+    """Returns (name, 'open'|'blocked'|'unresolved', advice)."""
     name, host, port, advice = svc
     # Two attempts: one lost packet must not be reported as "blocked".
     for _ in range(2):
         try:
             _connect_v4(host, port)
-            return (name, True, advice)
+            return (name, "open", advice)
+        except socket.gaierror:
+            # A DNS failure says nothing about the port — don't call it
+            # blocked (history would then report it as newly unblocked).
+            return (name, "unresolved", advice)
         except OSError:
             continue
-    return (name, False, advice)
+    return (name, "blocked", advice)
 
 
 def check_udp_dns():
@@ -70,12 +75,20 @@ def check_udp_dns():
 
 
 def check_ntp(host="time.apple.com"):
-    """UDP 123 — send a real NTP client request and wait for the reply."""
+    """UDP 123 — send a real NTP client request and wait for the reply.
+
+    Returns True/False, or None if the host name doesn't resolve.
+    """
+    try:
+        addr = socket.getaddrinfo(host, 123, socket.AF_INET,
+                                  socket.SOCK_DGRAM)[0][4]
+    except socket.gaierror:
+        return None
     packet = b"\x1b" + 47 * b"\x00"
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(TIMEOUT)
     try:
-        s.sendto(packet, (host, 123))
+        s.sendto(packet, addr)
         data, _ = s.recvfrom(512)
         return len(data) >= 48 and struct.unpack(">B", data[:1])[0] != 0
     except OSError:
@@ -84,18 +97,27 @@ def check_ntp(host="time.apple.com"):
         s.close()
 
 
+def _unresolved(report, findings, name):
+    findings["unresolved"].append(name)
+    report.add(name, "info", "not tested — server name didn't resolve",
+               "DNS failed for this check's server, so port blocking "
+               "couldn't be tested; fix DNS first.")
+
+
 def collect(report):
     """Check all services concurrently. Returns findings dict."""
-    findings = {"blocked": [], "open": []}
+    findings = {"blocked": [], "open": [], "unresolved": []}
 
     with ThreadPoolExecutor(max_workers=len(TCP_SERVICES)) as pool:
         tcp_future = pool.map(_check_tcp, TCP_SERVICES)
         results = list(tcp_future)
 
-    for name, is_open, advice in results:
-        if is_open:
+    for name, state, advice in results:
+        if state == "open":
             findings["open"].append(name)
             report.add(name, "ok", "reachable")
+        elif state == "unresolved":
+            _unresolved(report, findings, name)
         else:
             findings["blocked"].append(name)
             report.add(name, "fail", "blocked or filtered", advice)
@@ -115,9 +137,14 @@ def collect(report):
         )
 
     ntp_name = "UDP — NTP time sync (123)"
-    if any(check_ntp() for _ in range(2)):
+    ntp = check_ntp()
+    if ntp is False:  # retry only a lost reply, not a DNS failure
+        ntp = check_ntp()
+    if ntp:
         findings["open"].append(ntp_name)
         report.add(ntp_name, "ok", "reachable")
+    elif ntp is None:
+        _unresolved(report, findings, ntp_name)
     else:
         findings["blocked"].append(ntp_name)
         report.add(

@@ -11,6 +11,7 @@ import socket
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urljoin
 
 # (url, expected_status, expected_body_substring)
 PROBES = [
@@ -28,7 +29,12 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _probe(args):
-    """Returns ('clean'|'portal'|'unreachable', detail)."""
+    """Returns ('clean'|'redirect'|'portal'|'unreachable', detail).
+
+    'redirect' (the detail is the absolute login URL) is the strong portal
+    signal; 'portal' is any other wrong answer, which on its own may just
+    be one filtered endpoint.
+    """
     url, expected_status, expected_body = args
     opener = urllib.request.build_opener(_NoRedirect)
     req = urllib.request.Request(url, headers={"User-Agent": "network-manager-diag/1.0"})
@@ -41,7 +47,7 @@ def _probe(args):
     except urllib.error.HTTPError as e:
         location = e.headers.get("Location", "")
         if 300 <= e.code < 400 and location:
-            return ("portal", location)
+            return ("redirect", urljoin(url, location))  # may be relative
         return ("portal", f"HTTP {e.code} from {url}")
     except (urllib.error.URLError, socket.timeout, OSError,
             http.client.HTTPException):
@@ -74,13 +80,20 @@ def collect(report):
     with ThreadPoolExecutor(max_workers=len(PROBES)) as pool:
         results = list(pool.map(_probe, PROBES))
 
-    portals = [detail for verdict, detail in results if verdict == "portal"]
+    redirects = [detail for verdict, detail in results if verdict == "redirect"]
+    portals = redirects + [d for verdict, d in results if verdict == "portal"]
     clean = [1 for verdict, _ in results if verdict == "clean"]
     unreachable = [1 for verdict, _ in results if verdict == "unreachable"]
 
-    if portals:
+    # One odd answer (a firewall 403 on a single endpoint) must not outvote
+    # clean probes; a portal intercepts all of them. Ties go to the portal
+    # only when something actually redirected us to a login page.
+    is_portal = len(portals) > len(clean) or (
+        portals and len(portals) == len(clean) and redirects)
+
+    if is_portal:
         findings["captive_portal"] = True
-        redirect = next((d for d in portals if d.startswith("http")), None)
+        redirect = redirects[0] if redirects else None
         findings["portal_url"] = redirect
         detail = f"login page: {redirect}" if redirect else portals[0]
         report.add(
@@ -88,6 +101,13 @@ def collect(report):
             "This network requires a login before you can use it. Open "
             + (redirect or "http://captive.apple.com")
             + " in your browser to sign in.",
+        )
+    elif clean and portals:
+        # Most checks came back clean: likely one filtered endpoint.
+        report.add(
+            "Captive portal", "info",
+            f"no portal ({len(portals)} of {len(PROBES)} check endpoints "
+            f"answered unexpectedly: {portals[0]})",
         )
     elif clean:
         report.add("Captive portal", "ok", "no portal — direct internet access")
