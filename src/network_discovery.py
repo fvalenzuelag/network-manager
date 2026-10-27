@@ -6,12 +6,10 @@ have no open ports).
 """
 
 import os
-import re
 import socket
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
-from .netinfo import get_local_ip
+from .netinfo import arp_table, get_local_ip
 
 PROBE_PORTS = [80, 443, 22, 445, 8080, 62078]  # web, ssh, smb, alt-web, iOS
 TIMEOUT = 0.4
@@ -28,21 +26,6 @@ def _probe_host(ip):
         except OSError:
             continue
     return None
-
-
-def _arp_table():
-    """Parse `arp -a` into {ip: mac} (macOS and Linux share this format)."""
-    try:
-        out = subprocess.run(["arp", "-a"], capture_output=True, text=True,
-                             timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return {}
-    table = {}
-    for line in out.splitlines():
-        m = re.search(r"\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-fA-F:]+)", line)
-        if m:  # "(incomplete)" entries never match the MAC pattern
-            table[m.group(1)] = m.group(2)
-    return table
 
 
 def _hostname(ip):
@@ -64,7 +47,7 @@ def discover_network():
         alive = {ip for ip in pool.map(_probe_host, candidates) if ip}
 
     # The probing itself populates the ARP cache; merge whatever ARP knows.
-    arp = _arp_table()
+    arp = arp_table()
     alive |= {ip for ip in arp if ip.startswith(prefix + ".")}
     alive.discard(f"{prefix}.255")
     # We rarely answer our own probes or sit in our own ARP table.

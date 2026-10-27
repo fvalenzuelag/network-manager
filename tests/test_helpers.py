@@ -171,7 +171,7 @@ class TestScanOutput(unittest.TestCase):
                                return_value="10.0.0.5"), \
                 mock.patch.object(network_discovery, "_probe_host",
                                   side_effect=lambda ip: ip if ip.endswith(".1") else None), \
-                mock.patch.object(network_discovery, "_arp_table", return_value={}), \
+                mock.patch.object(network_discovery, "arp_table", return_value={}), \
                 mock.patch.object(network_discovery, "_hostname", return_value=None), \
                 mock.patch.object(network_discovery, "OUTPUT_FILE",
                                   "/dev/null/not-a-dir/devices.txt"):
@@ -184,7 +184,7 @@ class TestScanOutput(unittest.TestCase):
                                return_value="10.0.0.5"), \
                 mock.patch.object(network_discovery, "_probe_host",
                                   side_effect=lambda ip: ip if ip.endswith(".1") else None), \
-                mock.patch.object(network_discovery, "_arp_table", return_value={}), \
+                mock.patch.object(network_discovery, "arp_table", return_value={}), \
                 mock.patch.object(network_discovery, "_hostname", return_value=None), \
                 mock.patch.object(network_discovery, "OUTPUT_FILE",
                                   "/dev/null/not-a-dir/devices.txt"):

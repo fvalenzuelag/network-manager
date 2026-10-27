@@ -92,6 +92,70 @@ def get_ssid(interface=None):
     return m.group(1).strip() if m else None
 
 
+_MAC = r"[0-9a-fA-F]{1,2}(?::[0-9a-fA-F]{1,2}){5}"
+
+# Beyond this many other IPs sharing the router's MAC, the network is using
+# proxy ARP (the router answers for everyone — common on hotel/enterprise
+# Wi-Fi with client isolation), not one device impersonating it.
+PROXY_ARP_MIN = 3
+
+
+def _normalize_mac(mac):
+    # macOS drops leading zeros ("a:b:c..."); normalize for stable compares.
+    return ":".join(f"{int(b, 16):02x}" for b in mac.split(":"))
+
+
+def arp_table():
+    """The IPv4 ARP/neighbour cache as {ip: mac}, MACs normalized.
+
+    Broadcast/multicast entries are skipped. `-n` avoids a reverse-DNS
+    lookup per entry, which crawls on a network with broken DNS.
+    """
+    if sys.platform == "darwin":
+        out = _run(["arp", "-an"], timeout=10)
+        pairs = re.findall(rf"\((\d+\.\d+\.\d+\.\d+)\) at ({_MAC})\b", out)
+    else:
+        out = _run(["ip", "-4", "neigh", "show"], timeout=10)
+        pairs = re.findall(rf"^(\d+\.\d+\.\d+\.\d+) .*?lladdr ({_MAC})\b",
+                           out, re.M)
+    table = {}
+    for ip, mac in pairs:
+        mac = _normalize_mac(mac)
+        if int(mac[:2], 16) & 1:  # group bit: broadcast/multicast
+            continue
+        table[ip] = mac
+    return table
+
+
+def check_router_impersonation(report, gateway, gateway_mac, arp=None):
+    """Flag other IPs claiming the router's MAC — the mark of ARP spoofing.
+
+    Returns 'clean' | 'suspicious' | 'proxy_arp', or None if unknown.
+    """
+    if not gateway or not gateway_mac:
+        return None
+    arp = arp_table() if arp is None else arp
+    others = sorted(ip for ip, mac in arp.items()
+                    if mac == gateway_mac and ip != gateway)
+    name = "Router impersonation (ARP)"
+    if not others:
+        report.add(name, "ok", "no other device claims the router's address")
+        return "clean"
+    if len(others) >= PROXY_ARP_MIN:
+        report.add(name, "info",
+                   f"can't check — the router answers for {len(others)} other "
+                   "addresses (proxy ARP, common on hotel/enterprise Wi-Fi)")
+        return "proxy_arp"
+    report.add(
+        name, "warn",
+        f"the router's hardware address is also claimed by {', '.join(others)}",
+        "Another device may be impersonating the router to intercept "
+        "traffic (ARP spoofing). Don't log in to anything sensitive here; "
+        "use a VPN or mobile data.",
+    )
+    return "suspicious"
+
+
 def get_gateway_mac(gateway):
     """MAC address of the router from the ARP/neighbour cache, or None.
 
@@ -104,11 +168,8 @@ def get_gateway_mac(gateway):
         out = _run(["arp", "-n", gateway])
     else:
         out = _run(["ip", "neigh", "show", gateway])
-    m = re.search(r"\b([0-9a-fA-F]{1,2}(?::[0-9a-fA-F]{1,2}){5})\b", out)
-    if not m:
-        return None
-    # macOS drops leading zeros ("a:b:c..."); normalize for a stable key.
-    return ":".join(f"{int(b, 16):02x}" for b in m.group(1).split(":"))
+    m = re.search(rf"\b({_MAC})\b", out)
+    return _normalize_mac(m.group(1)) if m else None
 
 
 def collect(report):
@@ -148,6 +209,7 @@ def collect(report):
             "You are not connected to any network. Check Wi-Fi is on and connected.",
         )
 
+    gateway_mac = get_gateway_mac(gateway)
     if gateway:
         report.add("Gateway", "info", gateway)
     elif vpn:
@@ -166,6 +228,9 @@ def collect(report):
             "No DNS configured — set a public resolver like 1.1.1.1 manually.",
         )
 
+    impersonation = check_router_impersonation(report, gateway, gateway_mac)
+
     return {"ssid": ssid, "interface": iface, "local_ip": local_ip,
-            "gateway": gateway, "gateway_mac": get_gateway_mac(gateway),
+            "gateway": gateway, "gateway_mac": gateway_mac,
+            "router_impersonation": impersonation,
             "vpn_interface": vpn, "dns_servers": dns}
