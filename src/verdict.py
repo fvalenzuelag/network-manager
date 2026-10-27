@@ -64,8 +64,9 @@ def _diagnose(findings):
         url = portal.get("portal_url")
         return ("warn",
                 "The network works, but it's holding you at a captive portal.",
-                "Log in at " + (url or "the portal page")
-                + " (re-run with --open to launch it), then check again.")
+                "Log in at " + (url or "the portal page") + ". With --open "
+                "(or the GUI's button) the tool opens it, waits for you to "
+                "log in, and finishes the check.")
 
     if not conn.get("internet"):
         if conn.get("gateway_reachable"):

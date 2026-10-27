@@ -14,7 +14,8 @@ Usage:
     python main.py watch        # live stability monitor (Ctrl-C to stop)
     python main.py gui          # open the web GUI in your browser
     python main.py --json       # full diagnosis, JSON output
-    python main.py --open       # auto-open the captive portal login page
+    python main.py --open       # open the portal login page, wait for you to
+                                # log in, then finish the check
 
 Requires only the Python standard library — nothing to install.
 """
@@ -29,6 +30,8 @@ from src import captive, dnscheck, gui, history
 from src import network_discovery, services, speed, verdict, watch
 from src.fullcheck import run_full
 from src.reporting import Report, bold, cyan
+
+LOGIN_TIMEOUT = 600  # seconds to wait for a captive portal login
 
 
 def main():
@@ -47,7 +50,10 @@ def main():
     parser.add_argument("--json", action="store_true", dest="as_json",
                         help="print results as JSON instead of the report")
     parser.add_argument("--open", action="store_true", dest="open_portal",
-                        help="open the captive portal login page in the browser")
+                        help="open the captive portal login page, wait for you "
+                             "to log in, then run the check again")
+    parser.add_argument("--no-wait", action="store_true",
+                        help="with --open: just open the page, don't wait")
     parser.add_argument("-i", "--interval", type=float, default=5.0,
                         help="probe interval in seconds for watch (default: 5)")
     parser.add_argument("--port", type=int, default=8765,
@@ -67,12 +73,64 @@ def main():
         gui.serve(port=args.port, open_browser=not args.no_browser)
         return 0
 
-    report = Report(quiet=args.as_json)
-
     start = time.monotonic()
     if not args.as_json:
         print(bold("network-manager") + " — diagnosing the current network…")
+    report = Report(quiet=args.as_json)
+    findings, diagnosis = run_command(args, report)
 
+    portal_url = captive.login_url(
+        (findings.get("portal") or findings) if isinstance(findings, dict) else {})
+    if args.open_portal and portal_url:
+        webbrowser.open(portal_url)
+        say(args, cyan(f"\n  Opened portal login page: {portal_url}"))
+        if not args.no_wait and _wait_for_login(args):
+            # The network behind the portal is a different network: start over.
+            say(args, cyan("  Logged in — running the check again.\n"))
+            start = time.monotonic()
+            report = Report(quiet=args.as_json)
+            findings, diagnosis = run_command(args, report)
+
+    elapsed = time.monotonic() - start
+    if args.as_json:
+        payload = {"findings": findings, **report.to_dict(),
+                   "elapsed_seconds": round(elapsed, 1)}
+        if diagnosis:
+            status, headline, action = diagnosis
+            payload["verdict"] = {"status": status, "headline": headline,
+                                  "action": action}
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        report.summary(verdict=diagnosis)
+        print(f"\n  Done in {elapsed:.1f}s.")
+
+    # Exit code 1 if any hard failures — usable in scripts.
+    return 1 if any(r.status == "fail" for r in report.results) else 0
+
+
+def say(args, message):
+    """Progress messages: stdout normally, stderr in --json mode so the
+    JSON on stdout stays parseable."""
+    print(message, file=sys.stderr if args.as_json else sys.stdout, flush=True)
+
+
+def _wait_for_login(args):
+    """Wait for the portal to clear. True if it did."""
+    minutes = LOGIN_TIMEOUT // 60
+    say(args, f"  Waiting for you to log in (up to {minutes} min, "
+              "Ctrl-C to stop waiting)…")
+    try:
+        cleared = captive.wait_for_login(timeout=LOGIN_TIMEOUT)
+    except KeyboardInterrupt:
+        say(args, "\n  Stopped waiting.")
+        return False
+    if not cleared:
+        say(args, f"  Still behind the portal after {minutes} min — stopped waiting.")
+    return cleared
+
+
+def run_command(args, report):
+    """Run one diagnosis command. Returns (findings, verdict or None)."""
     diagnosis = None
     if args.command == "check":
         findings = run_full(report, include_speed=args.speed)
@@ -93,34 +151,7 @@ def main():
     elif args.command == "scan":
         report.section("Local network scan")
         findings = network_discovery.collect(report)
-
-    portal = (findings.get("portal") or findings) \
-        if isinstance(findings, dict) else {}
-    portal_url = portal.get("portal_url")
-    if portal.get("captive_portal") and not portal_url:
-        # No redirect URL captured: any plain-HTTP page makes the portal
-        # redirect the browser to its login page.
-        portal_url = "http://captive.apple.com"
-    if args.open_portal and portal_url:
-        webbrowser.open(portal_url)
-        if not args.as_json:
-            print(cyan(f"\n  Opened portal login page: {portal_url}"))
-
-    elapsed = time.monotonic() - start
-    if args.as_json:
-        payload = {"findings": findings, **report.to_dict(),
-                   "elapsed_seconds": round(elapsed, 1)}
-        if diagnosis:
-            status, headline, action = diagnosis
-            payload["verdict"] = {"status": status, "headline": headline,
-                                  "action": action}
-        print(json.dumps(payload, indent=2, default=str))
-    else:
-        report.summary(verdict=diagnosis)
-        print(f"\n  Done in {elapsed:.1f}s.")
-
-    # Exit code 1 if any hard failures — usable in scripts.
-    return 1 if any(r.status == "fail" for r in report.results) else 0
+    return findings, diagnosis
 
 
 if __name__ == "__main__":

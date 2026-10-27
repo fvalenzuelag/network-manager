@@ -112,6 +112,8 @@
   .verdict .vicon { font-size: 18px; line-height: 1.3; }
   .verdict h2 { font-size: 16px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
   .verdict p  { margin: 6px 0 0; color: var(--ink-2); font-size: 14px; }
+  .portal-box { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+  .portal-box span { color: var(--ink-2); font-size: 13px; }
 
   /* ── Empty state ────────────────────────────────────── */
   .hero {
@@ -222,7 +224,12 @@
     <div class="error-banner" id="errorBanner"></div>
     <div class="verdict" id="verdict">
       <span class="vicon" id="verdictIcon"></span>
-      <div><h2 id="verdictHead"></h2><p id="verdictAction"></p></div>
+      <div><h2 id="verdictHead"></h2><p id="verdictAction"></p>
+        <div class="portal-box" id="portalBox" style="display:none">
+          <button class="run" id="portalBtn" onclick="openPortal()">Open login page</button>
+          <span id="portalWait"></span>
+        </div>
+      </div>
     </div>
     <div class="hero" id="hero">
       <div class="big">🛜</div>
@@ -314,6 +321,7 @@ function render(state) {
     $("verdictAction").textContent = v.action || "";
     $("verdictAction").style.display = v.action ? "" : "none";
   }
+  renderPortal(state);
 
   // Cards, grouped by section in arrival order
   const sections = new Map();
@@ -338,6 +346,45 @@ function render(state) {
 
   $("foot").textContent = !state.running && state.elapsed != null
     ? `done in ${state.elapsed}s · ${new Date().toLocaleTimeString()}` : "";
+}
+
+/* ── Captive portal: open login, wait, re-run ───────────── */
+let portalUrl = null, portalWaiting = false;
+
+function renderPortal(state) {
+  // Network-supplied URL: the server only passes http(s), and so do we.
+  portalUrl = !state.running && /^https?:\/\//i.test(state.portal_url || "")
+    ? state.portal_url : null;
+  $("portalBox").style.display = portalUrl || portalWaiting ? "" : "none";
+}
+
+function openPortal() {
+  if (!portalUrl) return;
+  window.open(portalUrl, "_blank", "noopener");  // can't reach back into us
+  if (portalWaiting) return;
+  portalWaiting = true;
+  $("portalBtn").textContent = "Open it again";
+  $("portalWait").textContent = "Waiting for you to log in…";
+  waitForLogin(Date.now() + 10 * 60 * 1000);
+}
+
+async function waitForLogin(deadline) {
+  try {
+    const { cleared } = await (await api("/api/portal")).json();
+    if (cleared) {
+      portalWaiting = false;
+      $("portalWait").textContent = "Logged in — running the check again…";
+      $("portalBtn").textContent = "Open login page";
+      runCheck();
+      return;
+    }
+  } catch (e) { /* server busy — try again next tick */ }
+  if (Date.now() > deadline) {
+    portalWaiting = false;
+    $("portalWait").textContent = "Still behind the portal after 10 min — stopped waiting.";
+    return;
+  }
+  setTimeout(() => waitForLogin(deadline), 3000);
 }
 
 /* ── Tabs ───────────────────────────────────────────────── */

@@ -16,7 +16,7 @@ from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import dnscheck, history, netinfo, verdict
+from . import captive, dnscheck, history, netinfo, verdict
 from .connectivity import ping, tcp_connect_ms
 from .fullcheck import run_full
 from .reporting import Report
@@ -38,6 +38,7 @@ _state = {
     "started": None,
     "elapsed": None,
     "error": None,
+    "portal_url": None,
 }
 
 
@@ -47,6 +48,7 @@ def _run_check(include_speed):
         findings = run_full(report, include_speed=include_speed)
         history.compare(report, findings)
         _state["verdict"] = verdict.diagnose(findings)
+        _state["portal_url"] = captive.login_url(findings.get("portal"))
     except Exception as e:  # surfaced in the UI instead of a dead spinner
         _state["error"] = f"{type(e).__name__}: {e}"
     finally:
@@ -59,7 +61,8 @@ def start_run(include_speed=False):
         if _state["running"]:
             return False
         _state.update(running=True, report=Report(quiet=True), verdict=None,
-                      started=time.monotonic(), elapsed=None, error=None)
+                      started=time.monotonic(), elapsed=None, error=None,
+                      portal_url=None)
     threading.Thread(target=_run_check, args=(include_speed,),
                      daemon=True).start()
     return True
@@ -158,6 +161,7 @@ class Handler(BaseHTTPRequestHandler):
                 "verdict": {"status": v[0], "headline": v[1], "action": v[2]} if v else None,
                 "elapsed": round(elapsed, 1) if elapsed is not None else None,
                 "error": _state["error"],
+                "portal_url": _state["portal_url"],
             })
 
         elif url.path == "/api/run":  # state-changing: POST only
@@ -165,6 +169,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif url.path == "/api/probe":
             self._json(probe())
+
+        elif url.path == "/api/portal":  # polled while the user logs in
+            self._json({"cleared": captive.portal_cleared()})
 
         elif url.path.startswith("/api/"):
             self._json({"error": "not found"}, 404)
