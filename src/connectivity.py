@@ -47,6 +47,23 @@ def tcp_connect_ms(host, port, timeout=3.0):
         return None
 
 
+def gateway_answers_tcp(gateway, ports=(53, 80, 443), timeout=1.0):
+    """True if the router answers TCP on any common port.
+
+    Many routers drop ping; almost all run DNS or a web admin page. Even a
+    refused connection (RST) proves the router is alive.
+    """
+    for port in ports:
+        try:
+            with socket.create_connection((gateway, port), timeout=timeout):
+                return True
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def packet_loss(host, count=15, interval=0.2):
     """Send a quick ping burst and return the loss percentage.
 
@@ -115,14 +132,18 @@ def collect(report, gateway=None):
         ms = ping(gateway)
         if ms is None:
             ms = ping(gateway)
-        findings["gateway_reachable"] = ms is not None
+        tcp_alive = ms is None and gateway_answers_tcp(gateway)
+        findings["gateway_reachable"] = ms is not None or tcp_alive
         if ms is not None:
             report.add("Gateway (router)", "ok", f"reachable, {ms:.0f} ms")
+        elif tcp_alive:
+            report.add("Gateway (router)", "ok",
+                       "reachable (ignores ping, answers TCP)")
         else:
             report.add(
-                "Gateway (router)", "warn", "not answering ping",
-                "The router isn't answering ping — it may just block ICMP; "
-                "if everything else fails too, reconnect to the network.",
+                "Gateway (router)", "warn", "not answering ping or TCP",
+                "The router isn't answering at all — if everything else "
+                "fails too, reconnect to the network.",
             )
 
     # Direct-to-IP check: works even when DNS is completely broken.

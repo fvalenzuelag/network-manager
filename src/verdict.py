@@ -52,8 +52,8 @@ def diagnose(findings):
                     "Nothing you do locally will fix this. Tell the staff, "
                     "or tether to mobile data.")
         return ("fail",
-                "The router isn't responding and there's no internet — the "
-                "access point itself looks dead.",
+                "The router isn't answering (ping or TCP) and there's no "
+                "internet — the access point itself looks dead.",
                 "Reconnect once; if it persists, that AP is broken — try a "
                 "different network.")
 
