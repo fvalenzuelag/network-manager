@@ -25,14 +25,14 @@ python3 main.py
 
 ```bash
 python3 main.py              # full diagnosis (default)
-python3 main.py --speed      # full diagnosis + download speed test
+python3 main.py --speed      # full diagnosis + speed test
 python3 main.py --json       # full diagnosis, JSON output (scriptable)
 python3 main.py --open       # auto-open the captive portal login page if found
 
 python3 main.py portal       # captive portal / TLS interception only
 python3 main.py dns          # DNS health only
 python3 main.py services     # which ports/services are blocked
-python3 main.py speed        # quick download speed estimate
+python3 main.py speed        # download, upload, latency under load (~10-20s)
 python3 main.py scan         # discover devices (saved to ~/.network-manager/scans/)
 python3 main.py watch        # live stability monitor (Ctrl-C for summary)
 python3 main.py watch -i 2   # ...probing every 2 seconds
@@ -164,7 +164,7 @@ src/
   dnscheck.py              DNS health, incl. a minimal stdlib DNS client
   geo.py                   public IP / egress country / Cloudflare edge
   services.py              port/service blocking checks
-  speed.py                 quick download speed estimate
+  speed.py                 download/upload speed + bufferbloat (latency under load)
   verdict.py               single plain-language diagnosis from all findings
   history.py               per-network snapshots + last-visit comparison
   watch.py                 live stability monitor

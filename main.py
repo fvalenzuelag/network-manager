@@ -9,7 +9,7 @@ Usage:
     python main.py portal       # captive portal / TLS interception only
     python main.py dns          # DNS health only
     python main.py services     # which ports/services are blocked
-    python main.py speed        # quick download speed estimate
+    python main.py speed        # download/upload speed + latency under load
     python main.py scan         # discover devices on the local network
     python main.py watch        # live stability monitor (Ctrl-C to stop)
     python main.py gui          # open the web GUI in your browser
@@ -43,7 +43,7 @@ def main():
         help="what to run (default: full check)",
     )
     parser.add_argument("--speed", action="store_true",
-                        help="include a download speed test in the full check")
+                        help="include a speed test (download, upload, latency under load)")
     parser.add_argument("--json", action="store_true", dest="as_json",
                         help="print results as JSON instead of the report")
     parser.add_argument("--open", action="store_true", dest="open_portal",

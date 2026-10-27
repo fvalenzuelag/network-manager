@@ -48,6 +48,7 @@ def snapshot(findings):
         "blocked": sorted(services["blocked"]) if services else None,
         "open": sorted(services["open"]) if services else None,
         "download_mbps": speed.get("download_mbps"),
+        "upload_mbps": speed.get("upload_mbps"),
         "wifi_rssi_dbm": (findings.get("wifi") or {}).get("rssi_dbm"),
         "egress_country": (findings.get("egress") or {}).get("country"),
         "egress_colo": (findings.get("egress") or {}).get("colo"),
@@ -169,11 +170,12 @@ def compare(report, findings):
                    f"{old_lat:.0f} ms {when} → {new_lat:.0f} ms now")
         changes += 1
 
-    old_dl, new_dl = prev.get("download_mbps"), snap["download_mbps"]
-    if old_dl and new_dl and new_dl < old_dl / 2:
-        report.add("Download speed", "warn",
-                   f"{old_dl:.0f} Mbps {when} → {new_dl:.0f} Mbps now")
-        changes += 1
+    for key, label in (("download_mbps", "Download speed"),
+                       ("upload_mbps", "Upload speed")):
+        old, new = prev.get(key), snap[key]
+        if old and new and new < old / 2:
+            report.add(label, "warn", f"{old:.0f} Mbps {when} → {new:.0f} Mbps now")
+            changes += 1
 
     if changes == 0:
         report.add("History", "info",
