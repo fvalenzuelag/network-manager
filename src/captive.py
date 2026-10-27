@@ -13,7 +13,7 @@ import time
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 # (url, expected_status, expected_body_substring)
 PROBES = [
@@ -58,8 +58,14 @@ def _probe(args):
             return ("portal", f"unexpected content from {url}")
     except urllib.error.HTTPError as e:
         location = e.headers.get("Location", "")
+        e.close()  # the error is also an open response
         if 300 <= e.code < 400 and location:
-            return ("redirect", urljoin(url, location))  # may be relative
+            target = urljoin(url, location)  # may be relative
+            # The network controls this URL and we may open it in a browser:
+            # never a javascript:/file:/data: URL, only a web page.
+            if urlparse(target).scheme in ("http", "https"):
+                return ("redirect", target)
+            return ("portal", f"redirect to a non-web URL from {url}")
         return ("portal", f"HTTP {e.code} from {url}")
     except (urllib.error.URLError, socket.timeout, OSError,
             http.client.HTTPException):
@@ -124,23 +130,65 @@ def check_tls_interception(host="www.google.com", timeout=6):
         return ("unreachable", f"cannot reach {host}:443")
 
 
+def _run_probes():
+    with ThreadPoolExecutor(max_workers=len(PROBES)) as pool:
+        return list(pool.map(_probe, PROBES))
+
+
+def _is_portal(results):
+    """The portal vote, shared by detection and the wait-for-login loop.
+
+    One odd answer (a firewall 403 on a single endpoint) must not outvote
+    clean probes; a portal intercepts all of them. Ties go to the portal
+    only when something actually redirected us to a login page.
+    """
+    redirects = [d for verdict, d in results if verdict == "redirect"]
+    portals = redirects + [d for verdict, d in results if verdict == "portal"]
+    clean = sum(verdict == "clean" for verdict, _ in results)
+    return bool(len(portals) > clean or (
+        portals and len(portals) == clean and redirects))
+
+
+def login_url(portal):
+    """URL to open for a portal finding, or None if there's no portal.
+
+    Without a captured redirect, any plain-HTTP page makes the portal
+    redirect the browser to its login page.
+    """
+    if not (portal or {}).get("captive_portal"):
+        return None
+    return portal.get("portal_url") or "http://captive.apple.com"
+
+
+def portal_cleared():
+    """One quick re-probe: True once the probes say there's no portal."""
+    results = _run_probes()
+    return not _is_portal(results) and any(v == "clean" for v, _ in results)
+
+
+def wait_for_login(timeout=600, interval=3.0, sleep=time.sleep):
+    """Poll until the portal is gone. True once cleared, False on timeout.
+
+    Ctrl-C propagates to the caller (it means "stop waiting").
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if portal_cleared():
+            return True
+        sleep(interval)
+    return False
+
+
 def collect(report):
     """Run captive portal + TLS interception checks. Returns findings dict."""
     findings = {"captive_portal": False, "portal_url": None}
 
-    with ThreadPoolExecutor(max_workers=len(PROBES)) as pool:
-        results = list(pool.map(_probe, PROBES))
-
+    results = _run_probes()
     redirects = [detail for verdict, detail in results if verdict == "redirect"]
     portals = redirects + [d for verdict, d in results if verdict == "portal"]
     clean = [1 for verdict, _ in results if verdict == "clean"]
     unreachable = [1 for verdict, _ in results if verdict == "unreachable"]
-
-    # One odd answer (a firewall 403 on a single endpoint) must not outvote
-    # clean probes; a portal intercepts all of them. Ties go to the portal
-    # only when something actually redirected us to a login page.
-    is_portal = len(portals) > len(clean) or (
-        portals and len(portals) == len(clean) and redirects)
+    is_portal = _is_portal(results)
 
     if is_portal:
         findings["captive_portal"] = True

@@ -27,7 +27,7 @@ python3 main.py
 python3 main.py              # full diagnosis (default)
 python3 main.py --speed      # full diagnosis + speed test
 python3 main.py --json       # full diagnosis, JSON output (scriptable)
-python3 main.py --open       # auto-open the captive portal login page if found
+python3 main.py --open       # portal? open its login page, wait, then finish the check
 
 python3 main.py portal       # captive portal / TLS interception only
 python3 main.py dns          # DNS health only
@@ -110,7 +110,11 @@ use ssh.github.com:443"*, *"portal detected → open this URL to log in"*.
 
 The full check is adaptive: if a captive portal is detected, it skips the
 DNS/service checks (they'd all fail for the same root cause) and tells you to
-log in first.
+log in first. With `--open` (or the **Open login page** button in the GUI) it
+opens the login page, waits for you to log in, and then runs the full check
+on the now-open network — no second command needed. `--no-wait` only opens
+the page. Only `http(s)` login URLs are ever opened: the network supplies
+the URL, so `javascript:`/`file:` redirects are refused.
 
 ### The verdict
 
