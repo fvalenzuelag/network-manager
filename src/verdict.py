@@ -12,6 +12,15 @@ def diagnose(findings):
     """Return (status, headline, action). status: 'ok' | 'warn' | 'fail'."""
     status, headline, action = _diagnose(findings)
     vpn = (findings.get("network") or {}).get("vpn_interface")
+    open_wifi = (findings.get("wifi") or {}).get("security_level") == "open"
+    if open_wifi and not vpn:  # a VPN already encrypts everything
+        if status == "ok":
+            status = "warn"
+        headline += (" Note: this Wi-Fi is unencrypted — anyone nearby can "
+                     "read traffic that isn't HTTPS.")
+        action = action or "Use a VPN for anything sensitive on this network."
+    elif open_wifi:
+        headline += " (The Wi-Fi is unencrypted, but your VPN covers that.)"
     if vpn:
         headline += f" (Measured through your VPN on {vpn}, not this network.)"
         action = action or ("Disconnect the VPN and run again to check the "

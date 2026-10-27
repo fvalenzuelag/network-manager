@@ -144,7 +144,7 @@ src/
   fullcheck.py             the full diagnosis flow (shared by CLI and GUI)
   gui.py                   localhost web server for the GUI
   netinfo.py               local network info (IP, gateway, DNS, SSID)
-  wifi.py                  Wi-Fi signal quality — RSSI/SNR/channel (macOS)
+  wifi.py                  Wi-Fi signal + security (open/WEP warning) (macOS)
   connectivity.py          gateway/internet/IPv6/latency/packet-loss checks
   captive.py               captive portal + TLS interception detection
   dnscheck.py              DNS health, incl. a minimal stdlib DNS client
