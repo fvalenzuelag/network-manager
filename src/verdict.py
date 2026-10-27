@@ -94,6 +94,14 @@ def _diagnose(findings):
                 "Don't log in to anything sensitive here. Use a VPN or "
                 "mobile data.")
 
+    if net.get("router_impersonation") == "suspicious":
+        return ("warn",
+                "You're online, but another device on this network claims "
+                "the router's address — a sign of ARP spoofing (someone "
+                "intercepting traffic).",
+                "Don't log in to anything sensitive here; use a VPN or "
+                "mobile data.")
+
     if dns and not dns.get("system_resolves"):
         if dns.get("public_dns_reachable"):
             return ("fail",

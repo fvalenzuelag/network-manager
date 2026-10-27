@@ -51,6 +51,7 @@ def snapshot(findings):
         "wifi_rssi_dbm": (findings.get("wifi") or {}).get("rssi_dbm"),
         "egress_country": (findings.get("egress") or {}).get("country"),
         "egress_colo": (findings.get("egress") or {}).get("colo"),
+        "gateway_mac": findings.get("network", {}).get("gateway_mac"),
     }
 
 
@@ -143,6 +144,19 @@ def compare(report, findings):
         for name in sorted(set(prev["blocked"]) - set(snap["blocked"])):
             report.add(name, "info", f"was blocked {when}, now reachable")
             changes += 1
+
+    # Only fires when the history key is the SSID (or gateway IP): keyed by
+    # router MAC, a different router is simply a different network.
+    old_mac, new_mac = prev.get("gateway_mac"), snap["gateway_mac"]
+    if old_mac and new_mac and old_mac != new_mac:
+        report.add(
+            "Router", "warn",
+            f"different router than {when} ({old_mac} → {new_mac})",
+            "Same network name, different router hardware. Usually the "
+            "venue replaced equipment — but it's also what a fake network "
+            "copying this name looks like. Be wary of login prompts.",
+        )
+        changes += 1
 
     if prev.get("captive_portal") is False and snap["captive_portal"]:
         report.add("Captive portal", "info",

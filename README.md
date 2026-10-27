@@ -48,6 +48,18 @@ report includes a **"Compared to last visit"** section — e.g. *"SSH — was
 reachable on Jul 5, now blocked"* or *"Latency: 25 ms then → 210 ms now"*.
 A change since last time is a much stronger signal than a bare failure.
 
+It also warns when a known network shows up with **different router
+hardware** — usually new equipment, but also what a fake network copying the
+name looks like. That needs the SSID: macOS 14.4+ hides it from
+unprivileged tools, so history falls back to the router's MAC address (and
+this warning can't fire). Running `sudo ipconfig setverbose 1` once is the
+commonly cited way to make `ipconfig getsummary` show the SSID again.
+
+Independently of history, every check looks for **router impersonation**:
+another device on the network claiming the router's hardware address is the
+mark of ARP spoofing (someone intercepting traffic). Networks that use proxy
+ARP — the router answering for everyone — are recognized and not flagged.
+
 ### Watch mode
 
 `watch` prints one line per tick (gateway ping, internet TCP, DNS query) so
