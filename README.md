@@ -202,4 +202,4 @@ tests/                     stdlib unittest suite (python3 -m unittest discover t
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
