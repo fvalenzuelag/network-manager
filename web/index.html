@@ -264,20 +264,23 @@ function esc(s) {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function fx(name) { window.netfx && window.netfx.setState(name); }
+// The server rejects /api/ calls without this header (blocks other sites).
+const api = (path, opts = {}) =>
+  fetch(path, { ...opts, headers: { "X-Network-Manager": "1" } });
 
 /* ── Diagnosis ──────────────────────────────────────────── */
 let polling = false;
 
 async function runCheck() {
   const speed = $("speedOpt").checked ? 1 : 0;
-  await fetch(`/api/run?speed=${speed}`);
+  await api(`/api/run?speed=${speed}`, { method: "POST" });
   if (!polling) poll();
 }
 
 async function poll() {
   polling = true;
   try {
-    const state = await (await fetch("/api/state")).json();
+    const state = await (await api("/api/state")).json();
     render(state);
     if (state.running) { setTimeout(poll, 450); return; }
   } catch (e) {
@@ -363,7 +366,7 @@ async function monTick() {
   if (!monRunning) return;
   const started = Date.now();
   try {
-    const p = await (await fetch("/api/probe")).json();
+    const p = await (await api("/api/probe")).json();
     sampleCount++;
     if (p.internet_ms == null) lostInternet++;
     fx(p.internet_ms == null ? "fail" : "idle");

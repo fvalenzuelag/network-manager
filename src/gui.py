@@ -24,6 +24,12 @@ from .reporting import Report
 WEB_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 
+# Every /api/ call must carry this header. Other websites can't add a custom
+# header to a request to us without a CORS preflight, which this server
+# never approves — so they can't trigger runs (e.g. a 25 MB speed test on
+# metered Wi-Fi) from an <img> tag or a form.
+API_HEADER = "X-Network-Manager"
+
 _lock = threading.Lock()
 _state = {
     "running": False,
@@ -106,8 +112,39 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self._json({"error": "not found"}, 404)
 
+    def _guard(self, url):
+        """Reject requests not made by our own page. Returns True if allowed.
+
+        The Host check defeats DNS rebinding (a hostile domain re-pointed
+        at 127.0.0.1 would send its own name as Host); the API header
+        defeats cross-site request forgery.
+        """
+        port = self.server.server_address[1]
+        if self.headers.get("Host") not in (f"127.0.0.1:{port}",
+                                            f"localhost:{port}"):
+            self._json({"error": "forbidden host"}, 403)
+            return False
+        if url.path.startswith("/api/") and self.headers.get(API_HEADER) != "1":
+            self._json({"error": f"missing {API_HEADER} header"}, 403)
+            return False
+        return True
+
+    def do_POST(self):
+        url = urlparse(self.path)
+        if not self._guard(url):
+            return
+
+        if url.path == "/api/run":
+            query = parse_qs(url.query)
+            speed = query.get("speed", ["0"])[0] == "1"
+            self._json({"started": start_run(include_speed=speed)})
+        else:
+            self._json({"error": "not found"}, 404)
+
     def do_GET(self):
         url = urlparse(self.path)
+        if not self._guard(url):
+            return
 
         if url.path == "/api/state":
             report = _state["report"]
@@ -123,10 +160,8 @@ class Handler(BaseHTTPRequestHandler):
                 "error": _state["error"],
             })
 
-        elif url.path == "/api/run":
-            query = parse_qs(url.query)
-            speed = query.get("speed", ["0"])[0] == "1"
-            self._json({"started": start_run(include_speed=speed)})
+        elif url.path == "/api/run":  # state-changing: POST only
+            self._json({"error": "use POST"}, 405)
 
         elif url.path == "/api/probe":
             self._json(probe())
