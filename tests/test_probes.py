@@ -12,8 +12,8 @@ import socket
 import unittest
 from unittest import mock
 
-from src import captive, connectivity, services
-from src.reporting import Report
+from network_manager import captive, connectivity, services
+from network_manager.reporting import Report
 
 
 def _result(report, name):

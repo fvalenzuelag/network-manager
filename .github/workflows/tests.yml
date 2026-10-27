@@ -61,3 +61,34 @@ jobs:
           for r in report["results"]:
               print(f"  {r['status']:4}  {r['section']:<30} {r['name']}: {r['detail']}")
           EOF
+
+  # Install the package the way a user would, then run it from outside the
+  # repo so nothing can come from the source tree by accident.
+  package:
+    name: package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"  # the oldest we promise
+      - run: python -m pip install .
+      - name: Installed command works, outside the repo
+        working-directory: ${{ runner.temp }}
+        run: |
+          network-manager --version
+          python -m network_manager --version
+          network-manager dns --json > dns.json || true  # exit 1 = a check failed
+          python -c "import json; print(json.load(open('dns.json'))['results'][0])"
+          python - <<'PY'
+          import os, network_manager, network_manager.gui as gui
+          assert "site-packages" in network_manager.__file__, network_manager.__file__
+          for f in ("index.html", "fx.js", "vendor/three.module.min.js"):
+              assert os.path.isfile(os.path.join(gui.WEB_ROOT, f)), f"GUI file not packaged: {f}"
+          print("GUI assets packaged:", gui.WEB_ROOT)
+          PY

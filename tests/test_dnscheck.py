@@ -9,8 +9,8 @@ import time
 import unittest
 from unittest import mock
 
-from src import dnscheck
-from src.reporting import Report
+from network_manager import dnscheck
+from network_manager.reporting import Report
 
 ADDRINFO = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", 0))]
 
@@ -56,7 +56,8 @@ class TestHijackCheck(unittest.TestCase):
     def _collect(self, resolve):
         report = Report(quiet=True)
         with mock.patch.object(dnscheck, "system_resolve", side_effect=resolve), \
-                mock.patch.object(dnscheck, "query", return_value=["1.2.3.4"]):
+                mock.patch.object(dnscheck, "query", return_value=["1.2.3.4"]), \
+                mock.patch.object(dnscheck, "doh_query", return_value=["1.2.3.4"]):
             findings = dnscheck.collect(report)
         hijack = next(r for r in report.results if r.name == "DNS hijack check")
         return findings, hijack

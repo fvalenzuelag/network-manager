@@ -6,9 +6,9 @@ Run:  python3 -m unittest discover tests
 import unittest
 from unittest import mock
 
-from src import wifi
-from src.reporting import Report
-from src.verdict import diagnose
+from network_manager import wifi
+from network_manager.reporting import Report
+from network_manager.verdict import diagnose
 
 # Trimmed `system_profiler SPAirPortDataType` output. The nearby network
 # listed after ours is open — it must never be mistaken for ours.

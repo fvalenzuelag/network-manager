@@ -1,17 +1,30 @@
 """DNS health checks: resolution, hijacking, and access to public resolvers.
 
 Includes a minimal DNS client (UDP) so we can query a *specific* server
-without any third-party library.
+without any third-party library, and a DNS-over-HTTPS check — so when the
+advice is "use DNS-over-HTTPS", it's a verified fix, not a guess.
 """
 
+import http.client
+import json
 import random
 import secrets
 import socket
 import struct
 import threading
+import urllib.parse
+import urllib.request
 
 PUBLIC_RESOLVERS = {"1.1.1.1": "Cloudflare", "8.8.8.8": "Google"}
 TEST_DOMAIN = "example.com"
+
+# JSON DoH APIs, addressed by IP so the check works when DNS itself is
+# broken (both certificates are valid for these IPs). Two providers, so
+# one company being blocked doesn't decide the answer.
+DOH_ENDPOINTS = [
+    ("Cloudflare", "https://1.1.1.1/dns-query"),
+    ("Google", "https://8.8.8.8/resolve"),
+]
 
 
 def build_query(name, qtype=1):
@@ -92,6 +105,39 @@ def system_resolve(name, timeout=4.0):
     return result[0] if result else None
 
 
+def doh_query(name, url, timeout=5.0):
+    """Resolve `name` over DNS-over-HTTPS (JSON API). Returns IPs or None.
+
+    TLS verification is what makes this meaningful: a network can fake a
+    port-53 answer, but not a 1.1.1.1 certificate.
+    """
+    query_string = urllib.parse.urlencode({"name": name, "type": "A"})
+    req = urllib.request.Request(f"{url}?{query_string}", headers={
+        "Accept": "application/dns-json",
+        "User-Agent": "network-manager-diag/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read(65536))
+    except (OSError, ValueError, http.client.HTTPException):
+        return None
+    if not isinstance(data, dict) or data.get("Status") != 0:
+        return None
+    ips = [a.get("data") for a in data.get("Answer") or []
+           if isinstance(a, dict) and a.get("type") == 1]
+    return ips or None
+
+
+def _workaround(doh_works):
+    """The DNS workaround to recommend, given what the DoH check found."""
+    if doh_works:
+        return ("DNS-over-HTTPS works here — turn on \"Secure DNS\" in your "
+                "browser, or use a VPN.")
+    if doh_works is False:
+        return ("DNS-over-HTTPS is blocked here too — only a VPN gets around "
+                "this network's DNS.")
+    return "Consider DNS-over-HTTPS in your browser, or a VPN."
+
+
 def collect(report):
     """Run DNS diagnostics and add results to the report."""
     findings = {}
@@ -113,6 +159,12 @@ def collect(report):
         result = query(TEST_DOMAIN, server)
         (working if result else blocked).append(f"{label} ({server})")
     findings["public_dns_reachable"] = bool(working)
+
+    doh_working = [label for label, url in DOH_ENDPOINTS
+                   if doh_query(TEST_DOMAIN, url)]
+    findings["doh_works"] = bool(doh_working)
+    workaround = _workaround(findings["doh_works"])
+
     if working:
         report.add("Direct access to public DNS", "ok", ", ".join(working))
     else:
@@ -120,9 +172,21 @@ def collect(report):
             "Direct access to public DNS", "warn",
             "port 53 to public resolvers is blocked",
             "This network forces you through its own DNS (common in hotels/"
-            "airports). Assume DNS queries are visible to the operator; "
-            "consider DNS-over-HTTPS in your browser or a VPN.",
+            "airports). Assume DNS queries are visible to the operator. "
+            + workaround,
         )
+
+    if doh_working:
+        report.add("DNS-over-HTTPS", "ok", "works — " + ", ".join(doh_working))
+    elif not ips or not working:
+        # It was the escape hatch for the DNS problems above — say so.
+        report.add("DNS-over-HTTPS", "warn", "blocked",
+                   "Encrypted DNS is blocked too; a VPN is the remaining way "
+                   "around this network's DNS.")
+    else:
+        report.add("DNS-over-HTTPS", "info",
+                   "blocked (only matters if you want encrypted DNS — this "
+                   "network's own DNS works)")
 
     # NXDOMAIN hijack: a random domain that cannot exist must NOT resolve.
     # Meaningless when nothing resolves at all — a dead DNS would pass.
@@ -140,7 +204,7 @@ def collect(report):
             "DNS hijack check", "fail",
             f"nonexistent domain resolved to {hijack_ips[0]}",
             "The network's DNS is answering for domains that don't exist "
-            "(hijacking). Expect ads/redirects; use DNS-over-HTTPS or a VPN.",
+            "(hijacking). Expect ads/redirects. " + workaround,
         )
     else:
         report.add("DNS hijack check", "ok", "nonexistent domains correctly fail")

@@ -84,6 +84,64 @@ def packet_loss(host, count=15, interval=0.2):
     return None if loss >= 100 else loss
 
 
+# IPv4 + ICMP headers: a 1472-byte ping payload makes a full 1500-byte packet.
+ICMP_OVERHEAD = 28
+FULL_PAYLOAD = 1500 - ICMP_OVERHEAD
+
+
+def _df_ping(host, payload):
+    """Two don't-fragment pings of `payload` bytes.
+
+    Returns 'ok' (a reply came back), 'too_big' (refused with a signal:
+    the OS's "message too long" or a router's "frag needed"), 'silent'
+    (no reply, no signal), or None if ping couldn't run.
+    """
+    if sys.platform == "darwin":
+        cmd = ["ping", "-D", "-c", "2", "-i", "0.2", "-t", "2",
+               "-s", str(payload), host]
+    else:
+        cmd = ["ping", "-M", "do", "-c", "2", "-i", "0.2", "-W", "1",
+               "-s", str(payload), host]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode == 0:
+        return "ok"
+    text = (out.stdout + out.stderr).lower()
+    if "frag needed" in text or "message too long" in text:
+        return "too_big"
+    return "silent"
+
+
+def path_mtu(host="1.1.1.1"):
+    """Largest packet that gets through to `host`, and whether bigger ones
+    vanish silently. Returns {'mtu': int, 'blackhole': bool} or None if
+    ICMP is blocked (nothing to measure against).
+
+    A smaller path MTU is harmless when it's *signaled* — the OS learns it
+    and adapts (path MTU discovery). When oversized packets are dropped
+    without a word, connections stall instead: an MTU blackhole.
+    """
+    if _df_ping(host, 56) != "ok":
+        return None
+    full = _df_ping(host, FULL_PAYLOAD)
+    if full == "ok":
+        return {"mtu": FULL_PAYLOAD + ICMP_OVERHEAD, "blackhole": False}
+    if full is None:
+        return None
+    lo, hi, signaled = 56, FULL_PAYLOAD, full == "too_big"
+    while hi - lo > 4:  # 4-byte precision is plenty; keeps it to ~9 probes
+        mid = (lo + hi) // 2
+        result = _df_ping(host, mid)
+        if result == "ok":
+            lo = mid
+        else:
+            hi = mid
+            signaled = signaled or result == "too_big"
+    return {"mtu": lo + ICMP_OVERHEAD, "blackhole": not signaled}
+
+
 def check_ipv6():
     """Returns 'ok', 'broken', or 'none'.
 
@@ -221,6 +279,30 @@ def collect(report, gateway=None):
         elif gw_loss is not None:
             report.add("Packet loss — internet path", "info",
                        "can't measure (ICMP blocked upstream)")
+
+        mtu = path_mtu()
+        findings["path_mtu"] = mtu["mtu"] if mtu else None
+        findings["mtu_blackhole"] = bool(mtu and mtu["blackhole"])
+        if mtu is None:
+            pass  # ICMP blocked: nothing honest to say
+        elif mtu["mtu"] >= 1500:
+            report.add("Packet size (MTU)", "ok",
+                       "full 1500-byte packets get through")
+        elif not mtu["blackhole"]:
+            report.add("Packet size (MTU)", "info",
+                       f"path MTU {mtu['mtu']} — smaller than standard, but "
+                       "signaled properly, so your system adapts")
+        else:
+            report.add(
+                "Packet size (MTU)", "warn",
+                f"packets over {mtu['mtu']} bytes vanish silently "
+                "(MTU blackhole)",
+                "Large packets are dropped without notice. Web traffic "
+                "usually survives (routers clamp TCP segment sizes), but "
+                "VPNs, video calls and some downloads can hang. Set your "
+                f"MTU to {mtu['mtu']} (System Settings → Network → Wi-Fi → "
+                "Details → Hardware → MTU: Custom), or use mobile data.",
+            )
     else:
         report.add(
             "Internet (direct IP, no DNS)", "fail", "no route to the internet",

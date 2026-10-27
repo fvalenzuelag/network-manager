@@ -35,6 +35,7 @@ def _diagnose(findings):
     dns = findings.get("dns") or {}
     services = findings.get("services") or {}
     wifi = findings.get("wifi") or {}
+    speed = findings.get("speed") or {}  # only with --speed
 
     # ── Hard failures, ordered by network layer ──────────────────────
     local_ip = net.get("local_ip")
@@ -63,8 +64,9 @@ def _diagnose(findings):
         url = portal.get("portal_url")
         return ("warn",
                 "The network works, but it's holding you at a captive portal.",
-                "Log in at " + (url or "the portal page")
-                + " (re-run with --open to launch it), then check again.")
+                "Log in at " + (url or "the portal page") + ". With --open "
+                "(or the GUI's button) the tool opens it, waits for you to "
+                "log in, and finishes the check.")
 
     if not conn.get("internet"):
         if conn.get("gateway_reachable"):
@@ -108,11 +110,20 @@ def _diagnose(findings):
                     "The internet works — only this network's DNS is dead.",
                     "Set your DNS to 1.1.1.1 (System Settings → Wi-Fi → "
                     "Details → DNS) and you'll be fully online.")
+        if dns.get("doh_works") is False:
+            return ("fail",
+                    "The internet works at the IP level, but DNS is dead — and "
+                    "public resolvers and DNS-over-HTTPS are blocked too.",
+                    "Use a VPN or mobile data; there's no DNS workaround on "
+                    "this network.")
         return ("fail",
                 "The internet works at the IP level, but DNS is dead and "
                 "public resolvers are blocked too.",
-                "Enable DNS-over-HTTPS in your browser (it rides on port "
-                "443), or use a VPN.")
+                ("Turn on DNS-over-HTTPS (\"Secure DNS\") in your browser — "
+                 "it works on this network — or use a VPN."
+                 if dns.get("doh_works") else
+                 "Enable DNS-over-HTTPS in your browser (it rides on port "
+                 "443), or use a VPN."))
 
     # ── Online, but degraded ─────────────────────────────────────────
     issues, actions = [], []
@@ -135,13 +146,33 @@ def _diagnose(findings):
         actions.append("moving around won't help — expect instability, "
                        "consider mobile data for calls")
 
+    if conn.get("mtu_blackhole"):
+        issues.append(f"packets over {conn.get('path_mtu')} bytes vanish "
+                      "silently (MTU blackhole) — VPNs and calls may hang")
+        actions.append(f"set your MTU to {conn.get('path_mtu')}")
+
     latency = conn.get("latency_ms")
     if latency is not None and latency >= 300:
         issues.append(f"latency is very high ({latency:.0f} ms)")
 
+    bloat, bloat_ms = speed.get("bufferbloat"), speed.get("bufferbloat_ms")
+    if bloat in ("moderate", "severe"):
+        issues.append(f"latency jumps by {bloat_ms} ms when the link is busy "
+                      "(bufferbloat)" if bloat_ms is not None else
+                      "connections time out when the link is busy (bufferbloat)")
+        actions.append("pause uploads and cloud sync during calls")
+
+    upload = speed.get("upload_mbps")
+    if upload is not None and upload < 1.5:
+        issues.append(f"upload is only {upload:.1f} Mbps")
+        actions.append("turn your camera off on video calls")
+
     if dns.get("nxdomain_hijack"):
         issues.append("DNS answers are being tampered with")
-        actions.append("use DNS-over-HTTPS or a VPN")
+        actions.append({True: "turn on DNS-over-HTTPS in your browser (it "
+                              "works here) or use a VPN",
+                        False: "use a VPN (DNS-over-HTTPS is blocked here)"}
+                       .get(dns.get("doh_works"), "use DNS-over-HTTPS or a VPN"))
 
     blocked = services.get("blocked") or []
     if blocked:
@@ -157,7 +188,8 @@ def _diagnose(findings):
     if issues:
         return ("warn",
                 "You're online, but degraded: " + "; ".join(issues) + ".",
-                actions[0].capitalize() + "." if actions else None)
+                # Not str.capitalize(): it lowercases the rest ("VPN" → "vpn").
+                actions[0][0].upper() + actions[0][1:] + "." if actions else None)
 
     # ── All clear ────────────────────────────────────────────────────
     headline = "This network is healthy: no portal, clean DNS, nothing blocked"

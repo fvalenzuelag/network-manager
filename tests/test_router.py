@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src import history, netinfo
-from src.reporting import Report
-from src.verdict import diagnose
+from network_manager import history, netinfo
+from network_manager.reporting import Report
+from network_manager.verdict import diagnose
 
 GW, GW_MAC = "192.168.0.1", "18:35:d1:f7:72:a8"
 

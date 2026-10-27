@@ -15,24 +15,40 @@ The diagnostic tool uses **only the Python standard library** — deliberately,
 because when you're on broken Wi-Fi you can't `pip install` anything. If you
 have Python 3.10+, it runs.
 
+### Install (do it before you travel)
+
 ```bash
-git clone <this repo>
-cd network_manager
+pipx install git+https://github.com/fvalenzuelag/network-manager
+# or: uv tool install git+https://github.com/fvalenzuelag/network-manager
+network-manager            # works from any directory
+```
+
+That gives you a `network-manager` command (and `python3 -m network_manager`).
+Nothing else is downloaded, so it keeps working on any network afterwards.
+
+### Or run it from a clone
+
+```bash
+git clone https://github.com/fvalenzuelag/network-manager
+cd network-manager
 python3 main.py
 ```
+
+The examples below use `python3 main.py`; installed, it's the same with
+`network-manager` instead.
 
 ## Usage
 
 ```bash
 python3 main.py              # full diagnosis (default)
-python3 main.py --speed      # full diagnosis + download speed test
+python3 main.py --speed      # full diagnosis + speed test
 python3 main.py --json       # full diagnosis, JSON output (scriptable)
-python3 main.py --open       # auto-open the captive portal login page if found
+python3 main.py --open       # portal? open its login page, wait, then finish the check
 
 python3 main.py portal       # captive portal / TLS interception only
 python3 main.py dns          # DNS health only
 python3 main.py services     # which ports/services are blocked
-python3 main.py speed        # quick download speed estimate
+python3 main.py speed        # download, upload, latency under load (~10-20s)
 python3 main.py scan         # discover devices (saved to ~/.network-manager/scans/)
 python3 main.py watch        # live stability monitor (Ctrl-C for summary)
 python3 main.py watch -i 2   # ...probing every 2 seconds
@@ -95,21 +111,26 @@ still zero dependencies) and opens the browser:
 
 | Section | Checks |
 |---|---|
-| **Network** | Wi-Fi SSID, interface, local IP (flags self-assigned/DHCP failure), gateway, DNS servers, Wi-Fi signal quality (RSSI/SNR/channel/PHY rate, macOS) |
-| **Connectivity** | Gateway ping, internet reachability by direct IP (distinguishes "no internet" from "broken DNS"), IPv6 health, latency, packet loss split into Wi-Fi link vs venue uplink |
-| **Captive portal** | Probes the same endpoints macOS/Android/Firefox use; extracts the portal login URL when one is found |
-| **TLS interception** | Verifies the certificate chain of a well-known site — detects HTTPS man-in-the-middle |
-| **DNS** | System resolution, direct access to public resolvers (are you forced through the network's DNS?), NXDOMAIN hijack detection |
+| **Network** | Wi-Fi SSID, interface, local IP (flags self-assigned/DHCP failure), gateway, DNS servers, active VPN (results would describe the tunnel), router impersonation / ARP spoofing |
+| **Wi-Fi** (macOS) | Signal quality (RSSI/SNR/channel/PHY rate), and security — warns on open or WEP networks |
+| **Connectivity** | Gateway reachability (ping, or TCP for routers that ignore ping), internet reachability by direct IP (distinguishes "no internet" from "broken DNS"), IPv6 health, latency, packet loss split into Wi-Fi link vs venue uplink, path MTU — catches MTU blackholes where oversized packets vanish and VPNs/calls hang |
+| **Captive portal** | Probes the same endpoints macOS/Android/Firefox use (most must agree); extracts the portal login URL when one is found |
+| **TLS interception** | Verifies the certificate chain of a well-known site — detects HTTPS man-in-the-middle, after ruling out a wrong system clock |
+| **DNS** | System resolution, direct access to public resolvers (are you forced through the network's DNS?), DNS-over-HTTPS (so "use DoH" is advice that's known to work here), NXDOMAIN hijack detection |
 | **Public egress** | Your public IP, egress country, and the Cloudflare edge you hit (an IATA airport code — handy when traveling), WARP/VPN detection |
 | **Services** | Real connections to real servers: HTTPS, HTTP, SSH (22), IMAP (993), SMTP (587), DNS over TCP/TLS, WhatsApp, UDP DNS, NTP |
-| **Speed** | Short download burst against Cloudflare (capped at ~8 s — kind to metered connections) |
+| **Speed** (`--speed`) | Download and upload against Cloudflare (each capped at ~8 s / 25 MB — kind to metered connections), plus latency under load (bufferbloat — why calls stutter on a "fast" link) |
 
 Every failed check comes with a concrete suggestion — e.g. *"SSH is blocked →
 use ssh.github.com:443"*, *"portal detected → open this URL to log in"*.
 
 The full check is adaptive: if a captive portal is detected, it skips the
 DNS/service checks (they'd all fail for the same root cause) and tells you to
-log in first.
+log in first. With `--open` (or the **Open login page** button in the GUI) it
+opens the login page, waits for you to log in, and then runs the full check
+on the now-open network — no second command needed. `--no-wait` only opens
+the page. Only `http(s)` login URLs are ever opened: the network supplies
+the URL, so `javascript:`/`file:` redirects are refused.
 
 ### The verdict
 
@@ -123,8 +144,8 @@ failing **layer** and whether anything local can fix it:
 
 It distinguishes: not connected → DHCP failure → captive portal → dead
 access point → dead venue uplink → wrong system clock → HTTPS interception →
-dead DNS → degraded (weak signal, link vs uplink packet loss, hijacked DNS,
-blocked services, broken IPv6) → healthy.
+dead DNS → degraded (weak signal, link vs uplink packet loss, MTU blackhole,
+hijacked DNS, blocked services, broken IPv6) → healthy.
 
 Two traps it avoids: a **wrong clock** fails certificate checks exactly like
 HTTPS interception, so the clock is checked against live server time before
@@ -138,33 +159,36 @@ They read credentials from environment variables or a local `.env` file
 (never hardcode them):
 
 ```bash
-# UniFi Controller or UniFi OS console device status (needs: pip install requests)
+# UniFi Controller or UniFi OS console device status
+# (needs requests: pipx install "network-manager[unifi] @ git+https://...")
 UNIFI_URL=https://unifi.example.com:8443 UNIFI_PASSWORD=... \
-    python3 -m src.monitoring_unifi
+    python3 -m network_manager.monitoring_unifi
 
-# Cisco IOS device status over SSH (needs: pip install netmiko)
+# Cisco IOS device status over SSH (needs netmiko: the [cisco] extra)
 CISCO_HOSTS=10.0.0.1,10.0.0.2 CISCO_PASSWORD=... \
-    python3 -m src.monitoring_cisco
+    python3 -m network_manager.monitoring_cisco
 ```
 
 ## Project layout
 
 ```
-main.py                    CLI entry point
-web/index.html             web GUI (cyberpunk theme, CSS/JS inline)
-web/fx.js                  Three.js animated background
-web/vendor/                vendored Three.js (works offline)
-src/
+main.py                    run from a clone without installing (calls cli.py)
+pyproject.toml             packaging: the `network-manager` command, extras
+network_manager/
+  cli.py                   CLI entry point (`network-manager`, `python3 -m network_manager`)
+  web/index.html           web GUI (cyberpunk theme, CSS/JS inline)
+  web/fx.js                Three.js animated background
+  web/vendor/              vendored Three.js (works offline)
   fullcheck.py             the full diagnosis flow (shared by CLI and GUI)
   gui.py                   localhost web server for the GUI
   netinfo.py               local network info (IP, gateway, DNS, SSID)
   wifi.py                  Wi-Fi signal + security (open/WEP warning) (macOS)
   connectivity.py          gateway/internet/IPv6/latency/packet-loss checks
   captive.py               captive portal + TLS interception detection
-  dnscheck.py              DNS health, incl. a minimal stdlib DNS client
+  dnscheck.py              DNS health, incl. a minimal stdlib DNS client + DoH check
   geo.py                   public IP / egress country / Cloudflare edge
   services.py              port/service blocking checks
-  speed.py                 quick download speed estimate
+  speed.py                 download/upload speed + bufferbloat (latency under load)
   verdict.py               single plain-language diagnosis from all findings
   history.py               per-network snapshots + last-visit comparison
   watch.py                 live stability monitor
@@ -178,4 +202,4 @@ tests/                     stdlib unittest suite (python3 -m unittest discover t
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

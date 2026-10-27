@@ -13,7 +13,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from src import gui
+from network_manager import gui
 
 API = {gui.API_HEADER: "1"}
 
@@ -82,6 +82,14 @@ class TestGuiSecurity(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.request(method, path)[0], 403)
         self.start_run.assert_not_called()
+
+    def test_portal_endpoint_and_state(self):
+        with mock.patch.object(gui.captive, "portal_cleared", return_value=True):
+            self.assertEqual(self.request("GET", "/api/portal")[0], 403)  # no header
+            status, body = self.request("GET", "/api/portal", API)
+        self.assertEqual((status, json.loads(body)), (200, {"cleared": True}))
+        status, body = self.request("GET", "/api/state", API)
+        self.assertIn("portal_url", json.loads(body))
 
     def test_run_via_get_is_refused(self):
         # An <img src=".../api/run?speed=1"> must not start a speed test.

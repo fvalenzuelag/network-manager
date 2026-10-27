@@ -21,7 +21,7 @@ for _dep in ("netmiko", "requests"):
         stub.ConnectHandler = stub.Session = mock.MagicMock()
         sys.modules[_dep] = stub
 
-from src import history, monitoring_cisco, monitoring_unifi, network_discovery  # noqa: E402
+from network_manager import history, monitoring_cisco, monitoring_unifi, network_discovery  # noqa: E402
 
 
 class TestCisco(unittest.TestCase):
