@@ -176,7 +176,21 @@ class TestScanOutput(unittest.TestCase):
                 mock.patch.object(network_discovery, "OUTPUT_FILE",
                                   "/dev/null/not-a-dir/devices.txt"):
             devices = network_discovery.discover_network()
-        self.assertEqual([d["ip"] for d in devices], ["10.0.0.1"])
+        self.assertIn("10.0.0.1", [d["ip"] for d in devices])
+
+    def test_this_machine_is_listed(self):
+        # The local host doesn't answer its own probes or appear in ARP.
+        with mock.patch.object(network_discovery, "get_local_ip",
+                               return_value="10.0.0.5"), \
+                mock.patch.object(network_discovery, "_probe_host",
+                                  side_effect=lambda ip: ip if ip.endswith(".1") else None), \
+                mock.patch.object(network_discovery, "_arp_table", return_value={}), \
+                mock.patch.object(network_discovery, "_hostname", return_value=None), \
+                mock.patch.object(network_discovery, "OUTPUT_FILE",
+                                  "/dev/null/not-a-dir/devices.txt"):
+            devices = network_discovery.discover_network()
+        self.assertEqual([(d["ip"], d["is_you"]) for d in devices],
+                         [("10.0.0.1", False), ("10.0.0.5", True)])
 
     def test_output_is_not_relative_to_cwd(self):
         self.assertTrue(os.path.isabs(network_discovery.OUTPUT_FILE))

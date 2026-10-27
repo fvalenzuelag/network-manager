@@ -67,6 +67,8 @@ def discover_network():
     arp = _arp_table()
     alive |= {ip for ip in arp if ip.startswith(prefix + ".")}
     alive.discard(f"{prefix}.255")
+    # We rarely answer our own probes or sit in our own ARP table.
+    alive.add(local_ip)
 
     def sort_key(ip):
         return int(ip.split(".")[-1])
@@ -80,7 +82,8 @@ def discover_network():
         devices.append({
             "ip": ip,
             "mac": arp.get(ip),
-            "hostname": hostnames.get(ip),
+            "hostname": hostnames.get(ip)
+            or (socket.gethostname() if ip == local_ip else None),
             "is_you": ip == local_ip,
         })
 
