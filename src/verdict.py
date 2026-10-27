@@ -109,11 +109,20 @@ def _diagnose(findings):
                     "The internet works — only this network's DNS is dead.",
                     "Set your DNS to 1.1.1.1 (System Settings → Wi-Fi → "
                     "Details → DNS) and you'll be fully online.")
+        if dns.get("doh_works") is False:
+            return ("fail",
+                    "The internet works at the IP level, but DNS is dead — and "
+                    "public resolvers and DNS-over-HTTPS are blocked too.",
+                    "Use a VPN or mobile data; there's no DNS workaround on "
+                    "this network.")
         return ("fail",
                 "The internet works at the IP level, but DNS is dead and "
                 "public resolvers are blocked too.",
-                "Enable DNS-over-HTTPS in your browser (it rides on port "
-                "443), or use a VPN.")
+                ("Turn on DNS-over-HTTPS (\"Secure DNS\") in your browser — "
+                 "it works on this network — or use a VPN."
+                 if dns.get("doh_works") else
+                 "Enable DNS-over-HTTPS in your browser (it rides on port "
+                 "443), or use a VPN."))
 
     # ── Online, but degraded ─────────────────────────────────────────
     issues, actions = [], []
@@ -154,7 +163,10 @@ def _diagnose(findings):
 
     if dns.get("nxdomain_hijack"):
         issues.append("DNS answers are being tampered with")
-        actions.append("use DNS-over-HTTPS or a VPN")
+        actions.append({True: "turn on DNS-over-HTTPS in your browser (it "
+                              "works here) or use a VPN",
+                        False: "use a VPN (DNS-over-HTTPS is blocked here)"}
+                       .get(dns.get("doh_works"), "use DNS-over-HTTPS or a VPN"))
 
     blocked = services.get("blocked") or []
     if blocked:
@@ -170,7 +182,8 @@ def _diagnose(findings):
     if issues:
         return ("warn",
                 "You're online, but degraded: " + "; ".join(issues) + ".",
-                actions[0].capitalize() + "." if actions else None)
+                # Not str.capitalize(): it lowercases the rest ("VPN" → "vpn").
+                actions[0][0].upper() + actions[0][1:] + "." if actions else None)
 
     # ── All clear ────────────────────────────────────────────────────
     headline = "This network is healthy: no portal, clean DNS, nothing blocked"

@@ -95,14 +95,15 @@ still zero dependencies) and opens the browser:
 
 | Section | Checks |
 |---|---|
-| **Network** | Wi-Fi SSID, interface, local IP (flags self-assigned/DHCP failure), gateway, DNS servers, Wi-Fi signal quality (RSSI/SNR/channel/PHY rate, macOS) |
-| **Connectivity** | Gateway ping, internet reachability by direct IP (distinguishes "no internet" from "broken DNS"), IPv6 health, latency, packet loss split into Wi-Fi link vs venue uplink |
-| **Captive portal** | Probes the same endpoints macOS/Android/Firefox use; extracts the portal login URL when one is found |
-| **TLS interception** | Verifies the certificate chain of a well-known site — detects HTTPS man-in-the-middle |
-| **DNS** | System resolution, direct access to public resolvers (are you forced through the network's DNS?), NXDOMAIN hijack detection |
+| **Network** | Wi-Fi SSID, interface, local IP (flags self-assigned/DHCP failure), gateway, DNS servers, active VPN (results would describe the tunnel), router impersonation / ARP spoofing |
+| **Wi-Fi** (macOS) | Signal quality (RSSI/SNR/channel/PHY rate), and security — warns on open or WEP networks |
+| **Connectivity** | Gateway reachability (ping, or TCP for routers that ignore ping), internet reachability by direct IP (distinguishes "no internet" from "broken DNS"), IPv6 health, latency, packet loss split into Wi-Fi link vs venue uplink |
+| **Captive portal** | Probes the same endpoints macOS/Android/Firefox use (most must agree); extracts the portal login URL when one is found |
+| **TLS interception** | Verifies the certificate chain of a well-known site — detects HTTPS man-in-the-middle, after ruling out a wrong system clock |
+| **DNS** | System resolution, direct access to public resolvers (are you forced through the network's DNS?), DNS-over-HTTPS (so "use DoH" is advice that's known to work here), NXDOMAIN hijack detection |
 | **Public egress** | Your public IP, egress country, and the Cloudflare edge you hit (an IATA airport code — handy when traveling), WARP/VPN detection |
 | **Services** | Real connections to real servers: HTTPS, HTTP, SSH (22), IMAP (993), SMTP (587), DNS over TCP/TLS, WhatsApp, UDP DNS, NTP |
-| **Speed** | Short download burst against Cloudflare (capped at ~8 s — kind to metered connections) |
+| **Speed** (`--speed`) | Download and upload against Cloudflare (each capped at ~8 s / 25 MB — kind to metered connections), plus latency under load (bufferbloat — why calls stutter on a "fast" link) |
 
 Every failed check comes with a concrete suggestion — e.g. *"SSH is blocked →
 use ssh.github.com:443"*, *"portal detected → open this URL to log in"*.
@@ -161,7 +162,7 @@ src/
   wifi.py                  Wi-Fi signal + security (open/WEP warning) (macOS)
   connectivity.py          gateway/internet/IPv6/latency/packet-loss checks
   captive.py               captive portal + TLS interception detection
-  dnscheck.py              DNS health, incl. a minimal stdlib DNS client
+  dnscheck.py              DNS health, incl. a minimal stdlib DNS client + DoH check
   geo.py                   public IP / egress country / Cloudflare edge
   services.py              port/service blocking checks
   speed.py                 download/upload speed + bufferbloat (latency under load)
