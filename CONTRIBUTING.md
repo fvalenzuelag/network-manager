@@ -16,10 +16,16 @@ Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md) before contribu
 
 3. Create a new branch for your changes:
     ```
-    git checkout -b my-new-feature$SELECTION_PLACEHOLDER$
+    git checkout -b my-new-feature
     ```
 
-4. Make your changes, adding tests if applicable.
+4. Make your changes, adding tests if applicable, and run the suite
+   (stdlib only, no network needed):
+    ```
+    python3 -m unittest discover tests
+    ```
+   GitHub Actions runs the same tests on macOS and Linux (Python 3.10 and
+   latest) for every pull request, plus a smoke run of the real full check.
 
 5. Commit your changes with a descriptive commit message:
     ```

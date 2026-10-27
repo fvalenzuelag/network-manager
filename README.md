@@ -1,5 +1,7 @@
 # network-manager
 
+[![tests](https://github.com/fvalenzuelag/network-manager/actions/workflows/tests.yml/badge.svg)](https://github.com/fvalenzuelag/network-manager/actions/workflows/tests.yml)
+
 Fast diagnosis of unfamiliar networks — built for travel.
 
 When you land somewhere and connect to airport, hotel, café, or in-flight
