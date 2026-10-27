@@ -1,0 +1,63 @@
+# Unit tests on macOS and Linux, oldest supported and newest Python, plus a
+# smoke run of the real full check. Stdlib only — nothing to pip install.
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.14"]  # README promises 3.10+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+
+  # Runs the real diagnosis against the runner's own network. Cloud runners
+  # often block ICMP, so individual checks may fail — that's fine. What must
+  # hold is that the tool doesn't crash and emits a complete JSON report:
+  # this is the only place the Linux code paths (ip route, ip neigh,
+  # resolv.conf, Linux ping flags) run for real.
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Full check (JSON)
+        run: python main.py --json > report.json || true  # exit 1 = a check failed
+      - name: Report is complete
+        run: |
+          python - <<'EOF'
+          import json
+          report = json.load(open("report.json"))  # a crash leaves no JSON
+          verdict = report["verdict"]
+          assert verdict["status"] in ("ok", "warn", "fail"), verdict
+          for key in ("network", "connectivity", "portal"):
+              assert key in report["findings"], f"missing findings: {key}"
+          print(f"verdict: {verdict['status']} — {verdict['headline']}")
+          for r in report["results"]:
+              print(f"  {r['status']:4}  {r['section']:<30} {r['name']}: {r['detail']}")
+          EOF
