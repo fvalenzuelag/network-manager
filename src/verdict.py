@@ -5,9 +5,21 @@ lives* (your machine, the Wi-Fi link, the router, the venue's uplink,
 DNS, a portal) and whether anything you do locally can fix it.
 """
 
+from .captive import CLOCK_SKEW_LIMIT, describe_skew
+
 
 def diagnose(findings):
     """Return (status, headline, action). status: 'ok' | 'warn' | 'fail'."""
+    status, headline, action = _diagnose(findings)
+    vpn = (findings.get("network") or {}).get("vpn_interface")
+    if vpn:
+        headline += f" (Measured through your VPN on {vpn}, not this network.)"
+        action = action or ("Disconnect the VPN and run again to check the "
+                            "network itself.")
+    return status, headline, action
+
+
+def _diagnose(findings):
     net = findings.get("network", {})
     conn = findings.get("connectivity", {})
     portal = findings.get("portal", {})
@@ -28,7 +40,8 @@ def diagnose(findings):
                 "Forget the network and rejoin it, or renew the DHCP lease. "
                 "If it persists, the network side is broken.")
 
-    if not net.get("gateway"):
+    # Full-tunnel VPNs often have no gateway on their default route.
+    if not net.get("gateway") and not net.get("vpn_interface"):
         return ("fail",
                 "You have an address but no route to a router.",
                 "Reconnect to the network; this is a local configuration "
@@ -56,6 +69,14 @@ def diagnose(findings):
                 "internet — the access point itself looks dead.",
                 "Reconnect once; if it persists, that AP is broken — try a "
                 "different network.")
+
+    skew = portal.get("clock_skew_s")
+    if skew is not None and abs(skew) > CLOCK_SKEW_LIMIT:
+        return ("fail",
+                f"You're online, but {describe_skew(skew)} — so HTTPS "
+                "certificate checks fail. This is your machine, not the network.",
+                "Turn on automatic time (System Settings → General → Date & "
+                "Time), then check again.")
 
     if portal.get("tls_interception"):
         return ("fail",

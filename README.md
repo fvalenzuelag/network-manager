@@ -107,10 +107,15 @@ failing **layer** and whether anything local can fix it:
 > → Nothing you do locally will fix this. Tell the staff, or tether to
 > mobile data.
 
-It distinguishes: not connected → DHCP failure → dead access point → dead
-venue uplink → captive portal → HTTPS interception → dead DNS → degraded
-(weak signal, link vs uplink packet loss, hijacked DNS, blocked services,
-broken IPv6) → healthy.
+It distinguishes: not connected → DHCP failure → captive portal → dead
+access point → dead venue uplink → wrong system clock → HTTPS interception →
+dead DNS → degraded (weak signal, link vs uplink packet loss, hijacked DNS,
+blocked services, broken IPv6) → healthy.
+
+Two traps it avoids: a **wrong clock** fails certificate checks exactly like
+HTTPS interception, so the clock is checked against live server time before
+raising that alarm; and with a **VPN** on, every check measures the tunnel —
+the report says so, and such runs aren't saved to the network's history.
 
 ## Extras: managed-network monitoring
 

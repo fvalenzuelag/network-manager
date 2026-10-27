@@ -10,6 +10,16 @@ import subprocess
 import sys
 
 
+# Tunnel interfaces of VPN clients (WireGuard, OpenVPN, IPsec, Tailscale,
+# ZeroTier, GlobalProtect, …). When one carries the default route, every
+# check measures the tunnel instead of the network you joined.
+VPN_INTERFACE = re.compile(r"^(utun|tun|tap|wg|ppp|ipsec|tailscale|zt|gpd)\d*$")
+
+
+def is_vpn_interface(iface):
+    return bool(iface and VPN_INTERFACE.match(iface))
+
+
 def _run(cmd, timeout=5):
     try:
         out = subprocess.run(
@@ -43,7 +53,8 @@ def get_default_route():
         iface = re.search(r"interface:\s*(\S+)", out)
         return (gw.group(1) if gw else None, iface.group(1) if iface else None)
     out = _run(["ip", "route", "show", "default"])
-    m = re.search(r"default via (\S+) dev (\S+)", out)
+    # Point-to-point tunnels have no "via": "default dev wg0 scope link".
+    m = re.search(r"default(?: via (\S+))? dev (\S+)", out)
     return (m.group(1), m.group(2)) if m else (None, None)
 
 
@@ -111,6 +122,14 @@ def collect(report):
         report.add("Wi-Fi network", "info", ssid)
     if iface:
         report.add("Interface", "info", iface)
+    vpn = iface if is_vpn_interface(iface) else None
+    if vpn:
+        # The verdict carries the "disconnect it" action, so no advice here.
+        report.add(
+            "VPN", "warn",
+            f"active ({vpn}) — the checks below test the VPN tunnel, "
+            "not this network",
+        )
 
     if local_ip:
         status = "ok"
@@ -131,6 +150,8 @@ def collect(report):
 
     if gateway:
         report.add("Gateway", "info", gateway)
+    elif vpn:
+        report.add("Gateway", "info", "none (point-to-point VPN tunnel)")
     else:
         report.add(
             "Gateway", "fail", "no default route",
@@ -147,4 +168,4 @@ def collect(report):
 
     return {"ssid": ssid, "interface": iface, "local_ip": local_ip,
             "gateway": gateway, "gateway_mac": get_gateway_mac(gateway),
-            "dns_servers": dns}
+            "vpn_interface": vpn, "dns_servers": dns}

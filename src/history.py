@@ -109,7 +109,17 @@ def _when(timestamp):
 
 def compare(report, findings):
     """Compare this run to the previous visit on the same network, then save."""
-    key = _network_key(findings.get("network", {}))
+    network = findings.get("network", {})
+    if network.get("vpn_interface"):
+        # The run measured the tunnel; saving it would pollute (or, keyed
+        # by the VPN's gateway, merge) the history of real networks.
+        report.section("Compared to last visit")
+        report.add("History", "info",
+                   "not recorded — a VPN is active, so this run describes "
+                   "the VPN, not the network")
+        return
+
+    key = _network_key(network)
     if not key:
         return
 
