@@ -94,8 +94,13 @@ def main():
         report.section("Local network scan")
         findings = network_discovery.collect(report)
 
-    portal_url = (findings.get("portal") or findings).get("portal_url") \
-        if isinstance(findings, dict) else None
+    portal = (findings.get("portal") or findings) \
+        if isinstance(findings, dict) else {}
+    portal_url = portal.get("portal_url")
+    if portal.get("captive_portal") and not portal_url:
+        # No redirect URL captured: any plain-HTTP page makes the portal
+        # redirect the browser to its login page.
+        portal_url = "http://captive.apple.com"
     if args.open_portal and portal_url:
         webbrowser.open(portal_url)
         if not args.as_json:

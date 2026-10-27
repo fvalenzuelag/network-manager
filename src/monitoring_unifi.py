@@ -1,4 +1,4 @@
-"""Monitor device status on a UniFi Controller.
+"""Monitor device status on a UniFi Controller or UniFi OS console.
 
 Standalone helper for managed (home/office) networks — not part of the
 travel diagnosis flow. Credentials come from environment variables:
@@ -15,44 +15,73 @@ import sys
 
 import requests
 
+from .envfile import load_env
 
-def load_env(path=".env"):
-    """Minimal .env loader (KEY='value' lines) so no dependency is needed."""
-    try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    os.environ.setdefault(key.strip(), value.strip().strip("'\""))
-    except OSError:
-        pass
+
+# Device `state` codes from the controller API. Only 1 means connected —
+# e.g. 6 (heartbeat missed) is truthy but the device is effectively down.
+DEVICE_STATES = {
+    0: "DISCONNECTED",
+    1: "CONNECTED",
+    2: "PENDING ADOPTION",
+    4: "UPGRADING",
+    5: "PROVISIONING",
+    6: "HEARTBEAT MISSED",
+    7: "ADOPTING",
+    11: "ISOLATED",
+}
+
+
+def device_status(state):
+    return DEVICE_STATES.get(state, f"UNKNOWN (state {state})")
+
+
+def _login(session, controller_url, username, password):
+    """Log in, returning (api_prefix, logout) or None on failure.
+
+    Classic controllers use /api/login; UniFi OS consoles (UDM, Cloud Key
+    Gen2+) answer that with 404 and use /api/auth/login, with the network
+    API under /proxy/network and a CSRF token required for logout.
+    """
+    creds = {"username": username, "password": password}
+    login = session.post(f"{controller_url}/api/login", json=creds, timeout=10)
+    if login.status_code == 200:
+        return "", lambda: session.get(f"{controller_url}/api/logout", timeout=10)
+    if login.status_code != 404:
+        print(f"Failed to authenticate with the UniFi Controller "
+              f"(HTTP {login.status_code}).")
+        return None
+
+    login = session.post(f"{controller_url}/api/auth/login", json=creds,
+                         timeout=10)
+    if login.status_code != 200:
+        print(f"Failed to authenticate with the UniFi OS console "
+              f"(HTTP {login.status_code}).")
+        return None
+    csrf = {"X-CSRF-Token": login.headers.get("X-CSRF-Token", "")}
+    return "/proxy/network", lambda: session.post(
+        f"{controller_url}/api/auth/logout", headers=csrf, timeout=10)
 
 
 def monitor(controller_url, username, password, site="default", verify=True):
     session = requests.Session()
     session.verify = verify
 
-    login = session.post(
-        f"{controller_url}/api/login",
-        json={"username": username, "password": password},
-        timeout=10,
-    )
-    if login.status_code != 200:
-        print(f"Failed to authenticate with the UniFi Controller "
-              f"(HTTP {login.status_code}).")
+    logged_in = _login(session, controller_url, username, password)
+    if not logged_in:
         return 1
+    prefix, logout = logged_in
 
     try:
         devices = session.get(
-            f"{controller_url}/api/s/{site}/stat/device", timeout=10
+            f"{controller_url}{prefix}/api/s/{site}/stat/device", timeout=10
         ).json()["data"]
         for device in devices:
-            status = "CONNECTED" if device.get("state") else "DISCONNECTED"
             print(f"Device: {device.get('name', '?')} "
-                  f"({device.get('model', '?')}) - Status: {status}")
+                  f"({device.get('model', '?')}) - "
+                  f"Status: {device_status(device.get('state'))}")
     finally:
-        session.get(f"{controller_url}/api/logout", timeout=10)
+        logout()
     return 0
 
 

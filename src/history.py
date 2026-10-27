@@ -10,6 +10,7 @@ week, now it's blocked" is a much stronger signal than a bare failure.
 import json
 import os
 import re
+import tempfile
 from datetime import datetime, timezone
 
 HISTORY_DIR = os.path.expanduser("~/.network-manager/history")
@@ -54,26 +55,47 @@ def snapshot(findings):
 
 
 def load_runs(key):
+    path = _path(key)
     try:
-        with open(_path(key)) as f:
-            return json.load(f)
-    except (OSError, ValueError):
+        with open(path) as f:
+            runs = json.load(f)
+    except OSError:
         return []
+    except ValueError:
+        runs = None
+    if isinstance(runs, list):
+        return runs
+    # Unreadable: set it aside rather than let the next save overwrite it.
+    try:
+        os.replace(path, path + ".corrupt")
+    except OSError:
+        pass
+    return []
 
 
 def save_run(key, snap):
+    """Append a run. Writes a temp file and renames it into place, so a
+    crash or a concurrent CLI/GUI run can never leave a half-written file."""
     os.makedirs(HISTORY_DIR, exist_ok=True)
     runs = load_runs(key) + [snap]
-    with open(_path(key), "w") as f:
-        json.dump(runs[-MAX_RUNS:], f, indent=1)
+    fd, tmp = tempfile.mkstemp(dir=HISTORY_DIR, prefix=f".{key}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(runs[-MAX_RUNS:], f, indent=1)
+        os.replace(tmp, _path(key))
+    except BaseException:
+        os.unlink(tmp)
+        raise
 
 
 def _when(timestamp):
     """Humanize an ISO timestamp relative to now."""
     try:
         then = datetime.fromisoformat(timestamp)
-    except ValueError:
+    except (TypeError, ValueError):
         return "previously"
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
     days = (datetime.now(timezone.utc) - then).days
     if days <= 0:
         return "earlier today"
@@ -101,7 +123,7 @@ def compare(report, findings):
         return
 
     prev = previous_runs[-1]
-    when = _when(prev.get("timestamp", ""))
+    when = _when(prev.get("timestamp"))
     changes = 0
 
     if snap["blocked"] is not None and prev.get("blocked") is not None:
