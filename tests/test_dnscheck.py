@@ -9,8 +9,8 @@ import time
 import unittest
 from unittest import mock
 
-from src import dnscheck
-from src.reporting import Report
+from network_manager import dnscheck
+from network_manager.reporting import Report
 
 ADDRINFO = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", 0))]
 

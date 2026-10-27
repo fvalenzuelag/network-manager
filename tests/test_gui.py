@@ -13,7 +13,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from src import gui
+from network_manager import gui
 
 API = {gui.API_HEADER: "1"}
 

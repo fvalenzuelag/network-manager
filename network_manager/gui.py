@@ -21,8 +21,7 @@ from .connectivity import ping, tcp_connect_ms
 from .fullcheck import run_full
 from .reporting import Report
 
-WEB_ROOT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+WEB_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 # Every /api/ call must carry this header. Other websites can't add a custom
 # header to a request to us without a CORS preflight, which this server

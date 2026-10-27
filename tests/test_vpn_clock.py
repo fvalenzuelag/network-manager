@@ -13,9 +13,9 @@ import unittest
 from email.utils import formatdate
 from unittest import mock
 
-from src import captive, history, netinfo
-from src.reporting import Report
-from src.verdict import diagnose
+from network_manager import captive, history, netinfo
+from network_manager.reporting import Report
+from network_manager.verdict import diagnose
 
 DAY = 86400
 

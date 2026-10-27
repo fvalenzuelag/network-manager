@@ -11,9 +11,9 @@ import subprocess
 import unittest
 from unittest import mock
 
-from src import connectivity
-from src.reporting import Report
-from src.verdict import diagnose
+from network_manager import connectivity
+from network_manager.reporting import Report
+from network_manager.verdict import diagnose
 
 OVERHEAD = connectivity.ICMP_OVERHEAD
 

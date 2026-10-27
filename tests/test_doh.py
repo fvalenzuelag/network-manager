@@ -11,9 +11,9 @@ import socket
 import unittest
 from unittest import mock
 
-from src import dnscheck
-from src.reporting import Report
-from src.verdict import diagnose
+from network_manager import dnscheck
+from network_manager.reporting import Report
+from network_manager.verdict import diagnose
 
 
 def _response(payload):

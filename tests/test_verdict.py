@@ -9,7 +9,7 @@ Run:  python3 -m unittest discover tests
 
 import unittest
 
-from src.verdict import diagnose
+from network_manager.verdict import diagnose
 
 
 def base(**overrides):

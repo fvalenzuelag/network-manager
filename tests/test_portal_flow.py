@@ -13,8 +13,8 @@ import sys
 import unittest
 from unittest import mock
 
-import main
-from src import captive
+from network_manager import captive
+from network_manager import cli as main
 
 PORTAL = {"captive_portal": True, "portal_url": "http://login.hotel/",
           "tls_interception": False}

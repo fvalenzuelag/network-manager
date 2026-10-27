@@ -15,11 +15,27 @@ The diagnostic tool uses **only the Python standard library** — deliberately,
 because when you're on broken Wi-Fi you can't `pip install` anything. If you
 have Python 3.10+, it runs.
 
+### Install (do it before you travel)
+
 ```bash
-git clone <this repo>
-cd network_manager
+pipx install git+https://github.com/fvalenzuelag/network-manager
+# or: uv tool install git+https://github.com/fvalenzuelag/network-manager
+network-manager            # works from any directory
+```
+
+That gives you a `network-manager` command (and `python3 -m network_manager`).
+Nothing else is downloaded, so it keeps working on any network afterwards.
+
+### Or run it from a clone
+
+```bash
+git clone https://github.com/fvalenzuelag/network-manager
+cd network-manager
 python3 main.py
 ```
+
+The examples below use `python3 main.py`; installed, it's the same with
+`network-manager` instead.
 
 ## Usage
 
@@ -143,23 +159,26 @@ They read credentials from environment variables or a local `.env` file
 (never hardcode them):
 
 ```bash
-# UniFi Controller or UniFi OS console device status (needs: pip install requests)
+# UniFi Controller or UniFi OS console device status
+# (needs requests: pipx install "network-manager[unifi] @ git+https://...")
 UNIFI_URL=https://unifi.example.com:8443 UNIFI_PASSWORD=... \
-    python3 -m src.monitoring_unifi
+    python3 -m network_manager.monitoring_unifi
 
-# Cisco IOS device status over SSH (needs: pip install netmiko)
+# Cisco IOS device status over SSH (needs netmiko: the [cisco] extra)
 CISCO_HOSTS=10.0.0.1,10.0.0.2 CISCO_PASSWORD=... \
-    python3 -m src.monitoring_cisco
+    python3 -m network_manager.monitoring_cisco
 ```
 
 ## Project layout
 
 ```
-main.py                    CLI entry point
-web/index.html             web GUI (cyberpunk theme, CSS/JS inline)
-web/fx.js                  Three.js animated background
-web/vendor/                vendored Three.js (works offline)
-src/
+main.py                    run from a clone without installing (calls cli.py)
+pyproject.toml             packaging: the `network-manager` command, extras
+network_manager/
+  cli.py                   CLI entry point (`network-manager`, `python3 -m network_manager`)
+  web/index.html           web GUI (cyberpunk theme, CSS/JS inline)
+  web/fx.js                Three.js animated background
+  web/vendor/              vendored Three.js (works offline)
   fullcheck.py             the full diagnosis flow (shared by CLI and GUI)
   gui.py                   localhost web server for the GUI
   netinfo.py               local network info (IP, gateway, DNS, SSID)

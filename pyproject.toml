@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "network-manager"
+dynamic = ["version"]
+description = "Fast diagnosis of unfamiliar networks — built for travel."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Francisca Valenzuela Garrido" }]
+keywords = ["network", "wifi", "diagnostics", "captive-portal", "dns", "travel"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Networking :: Monitoring",
+]
+# The diagnostic tool itself is stdlib-only, on purpose: on broken airport
+# Wi-Fi you can't pip install anything. Extras are for the managed-network
+# helpers only.
+dependencies = []
+
+[project.optional-dependencies]
+unifi = ["requests>=2.32"]
+cisco = ["netmiko>=4.4"]
+
+[project.scripts]
+network-manager = "network_manager.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/fvalenzuelag/network-manager"
+
+[tool.setuptools]
+packages = ["network_manager"]
+
+[tool.setuptools.package-data]
+# The GUI's page, animation and vendored Three.js — it must work offline.
+network_manager = ["web/*.html", "web/*.js", "web/vendor/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "network_manager.__version__" }

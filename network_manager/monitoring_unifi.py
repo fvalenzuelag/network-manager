@@ -7,7 +7,7 @@ travel diagnosis flow. Credentials come from environment variables:
     UNIFI_USERNAME  defaults to "admin"
     UNIFI_PASSWORD
 
-Run:  python -m src.monitoring_unifi
+Run:  python -m network_manager.monitoring_unifi
 """
 
 import os

@@ -7,7 +7,7 @@ flow. Device list comes from environment variables:
     CISCO_USERNAME  defaults to "admin"
     CISCO_PASSWORD
 
-Run:  python -m src.monitoring_cisco   (requires: pip install netmiko)
+Run:  python -m network_manager.monitoring_cisco   (requires: pip install netmiko)
 """
 
 import os
