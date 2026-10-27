@@ -5,9 +5,11 @@ network returns the exact expected response; a captive portal intercepts the
 request and answers with a redirect or a login page instead.
 """
 
+import email.utils
 import http.client
 import ssl
 import socket
+import time
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +23,16 @@ PROBES = [
 ]
 
 TIMEOUT = 6
+
+# Sources whose Date header is generated live. Not captive.apple.com: it is
+# served from a CDN cache and its Date can be months old.
+CLOCK_SOURCES = [
+    "http://connectivitycheck.gstatic.com/generate_204",
+    "http://1.1.1.1/cdn-cgi/trace",  # answers with a live 301 to HTTPS
+]
+# Certificates fail validation when the clock is outside their validity
+# window; beyond this skew the clock is the likely cause, not a MITM.
+CLOCK_SKEW_LIMIT = 300
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -52,6 +64,45 @@ def _probe(args):
     except (urllib.error.URLError, socket.timeout, OSError,
             http.client.HTTPException):
         return ("unreachable", url)
+
+
+def clock_skew(timeout=TIMEOUT):
+    """Seconds the local clock is ahead (+) or behind (-) server time, or None.
+
+    Plain HTTP on purpose: HTTPS is exactly what breaks when the clock is
+    wrong. A cache can only make a Date header older, so the smallest skew
+    across sources wins — a stale cache never falsely blames the clock.
+    """
+    opener = urllib.request.build_opener(_NoRedirect)
+    skews = []
+    for url in CLOCK_SOURCES:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "network-manager-diag/1.0"})
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                date = resp.headers.get("Date")
+        except urllib.error.HTTPError as e:  # the 301 still carries a Date
+            date = e.headers.get("Date")
+            e.close()
+        except (OSError, http.client.HTTPException):
+            continue
+        try:
+            server = email.utils.parsedate_to_datetime(date).timestamp()
+        except (TypeError, ValueError):
+            continue
+        skews.append(time.time() - server)
+    return min(skews, key=abs) if skews else None
+
+
+def describe_skew(seconds):
+    """-259200 → 'your clock is 3 days behind'."""
+    direction = "ahead" if seconds > 0 else "behind"
+    s = abs(seconds)
+    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if s >= size:
+            n = round(s / size)
+            return f"your clock is {n} {unit}{'s' if n != 1 else ''} {direction}"
+    return f"your clock is {s:.0f} seconds {direction}"
 
 
 def check_tls_interception(host="www.google.com", timeout=6):
@@ -118,9 +169,24 @@ def collect(report):
         )
 
     verdict, detail = check_tls_interception()
-    findings["tls_interception"] = verdict == "intercepted"
+    # A wrong clock fails certificate checks exactly like a MITM does —
+    # rule it out before raising the alarm.
+    skew = clock_skew() if verdict == "intercepted" else None
+    clock_wrong = skew is not None and abs(skew) > CLOCK_SKEW_LIMIT
+    findings["clock_skew_s"] = skew
+    findings["tls_interception"] = verdict == "intercepted" and not clock_wrong
     if verdict == "ok":
         report.add("TLS inspection (HTTPS MITM)", "ok", detail)
+    elif clock_wrong:
+        report.add(
+            "System clock", "fail",
+            f"{describe_skew(skew)} — HTTPS certificate checks fail because of it",
+            "Turn on automatic time (System Settings → General → Date & "
+            "Time) and re-run. Until then, HTTPS sites will show "
+            "certificate errors.",
+        )
+        report.add("TLS inspection (HTTPS MITM)", "info",
+                   "can't tell while your clock is wrong")
     elif verdict == "intercepted":
         report.add(
             "TLS inspection (HTTPS MITM)", "fail", detail,
