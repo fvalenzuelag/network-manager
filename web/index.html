@@ -353,20 +353,26 @@ function showTab(which) {
 const MAX_TICKS = 90;
 let monRunning = false;
 let monTimer = null;
+// Bumped on every start/stop: a probe still in flight from an older run
+// sees a stale generation and drops out instead of spawning a 2nd loop.
+let monGen = 0;
 const ticks = { gateway: [], internet: [], dns: [] };
 let sampleCount = 0, lostInternet = 0;
 
 function toggleMonitor() {
   monRunning = !monRunning;
+  monGen++;
+  clearTimeout(monTimer);
   $("monBtn").textContent = monRunning ? "Stop" : "Start monitoring";
-  if (monRunning) monTick(); else clearTimeout(monTimer);
+  if (monRunning) monTick(monGen);
 }
 
-async function monTick() {
-  if (!monRunning) return;
+async function monTick(gen) {
+  if (gen !== monGen) return;
   const started = Date.now();
   try {
     const p = await (await api("/api/probe")).json();
+    if (gen !== monGen) return;  // stopped/restarted while waiting
     sampleCount++;
     if (p.internet_ms == null) lostInternet++;
     fx(p.internet_ms == null ? "fail" : "idle");
@@ -379,7 +385,8 @@ async function monTick() {
       (lostInternet ? ` · ${lostInternet} lost` : "");
   } catch (e) { /* server briefly busy — skip this tick */ }
   const interval = +$("monInterval").value;
-  monTimer = setTimeout(monTick, Math.max(250, interval - (Date.now() - started)));
+  if (gen !== monGen) return;
+  monTimer = setTimeout(() => monTick(gen), Math.max(250, interval - (Date.now() - started)));
 }
 
 function pushTick(name, ms) {

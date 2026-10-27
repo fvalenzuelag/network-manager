@@ -11,33 +11,58 @@ Run:  python -m src.monitoring_cisco   (requires: pip install netmiko)
 """
 
 import os
+import re
 import sys
 from datetime import datetime
 
 from netmiko import ConnectHandler
 
-from .monitoring_unifi import load_env
+from .envfile import load_env
+
+
+def parse_cpu(output):
+    """'CPU utilization for five seconds: 5%/0%; one minute: 3%; five
+    minutes: 2%' → '5% (5 s), 3% (1 min), 2% (5 min)', or None."""
+    m = re.search(r"five seconds:\s*(\d+)%.*?one minute:\s*(\d+)%"
+                  r".*?five minutes:\s*(\d+)%", output, re.S)
+    if not m:
+        return None
+    return f"{m.group(1)}% (5 s), {m.group(2)}% (1 min), {m.group(3)}% (5 min)"
+
+
+def parse_memory(output):
+    """'Processor Pool Total: 816029576 Used: 246520824 Free: ...' →
+    '30% of processor memory used', or None."""
+    m = re.search(r"Processor Pool Total:\s*(\d+)\s+Used:\s*(\d+)", output)
+    if not m or int(m.group(1)) == 0:
+        return None
+    return f"{100 * int(m.group(2)) / int(m.group(1)):.0f}% of processor memory used"
 
 
 def get_device_status(device):
     try:
         conn = ConnectHandler(**device)
-        hostname = conn.send_command("show run | inc hostname")
-        hostname = hostname.split("hostname ")[1].strip()
-
-        uptime = conn.send_command("show ver | inc uptime")
-        uptime = uptime.split("uptime is")[1].strip()
-
-        cpu_mem = conn.send_command("show proc cpu | exc CPU").split("\n")
-        cpu_util = cpu_mem[1].split(":")[1].strip()
-        mem_util = cpu_mem[2].split(":")[1].strip()
-
-        conn.disconnect()
-        return {"hostname": hostname, "uptime": uptime,
-                "cpu_util": cpu_util, "mem_util": mem_util}
     except Exception as e:
         print(f"Error connecting to {device['host']}: {e}")
         return None
+    try:
+        hostname = conn.send_command("show run | include ^hostname")
+        m = re.search(r"hostname\s+(\S+)", hostname)
+
+        uptime = conn.send_command("show version | include uptime")
+        u = re.search(r"uptime is\s+(.+)", uptime)
+
+        cpu = conn.send_command("show processes cpu | include CPU utilization")
+        mem = conn.send_command("show processes memory | include Processor")
+        return {"hostname": m.group(1) if m else device["host"],
+                "uptime": u.group(1).strip() if u else "?",
+                "cpu_util": parse_cpu(cpu) or "?",
+                "mem_util": parse_memory(mem) or "?"}
+    except Exception as e:
+        print(f"Error reading status from {device['host']}: {e}")
+        return None
+    finally:
+        conn.disconnect()
 
 
 def monitor_devices(devices):

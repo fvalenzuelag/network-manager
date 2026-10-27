@@ -31,7 +31,7 @@ python3 main.py portal       # captive portal / TLS interception only
 python3 main.py dns          # DNS health only
 python3 main.py services     # which ports/services are blocked
 python3 main.py speed        # quick download speed estimate
-python3 main.py scan         # discover devices on the local network
+python3 main.py scan         # discover devices (saved to ~/.network-manager/scans/)
 python3 main.py watch        # live stability monitor (Ctrl-C for summary)
 python3 main.py watch -i 2   # ...probing every 2 seconds
 python3 main.py gui          # web GUI in your browser (see below)
@@ -42,7 +42,8 @@ Exit code is `1` if any hard failure was found, so you can script on it.
 ### Network history
 
 Every full check saves a snapshot to `~/.network-manager/history/`, one file
-per network (keyed by SSID). On your next visit to the same network the
+per network (keyed by SSID, or by the router's MAC address where macOS hides
+the SSID). On your next visit to the same network the
 report includes a **"Compared to last visit"** section — e.g. *"SSH — was
 reachable on Jul 5, now blocked"* or *"Latency: 25 ms then → 210 ms now"*.
 A change since last time is a much stronger signal than a bare failure.
@@ -118,7 +119,7 @@ They read credentials from environment variables or a local `.env` file
 (never hardcode them):
 
 ```bash
-# UniFi Controller device status (needs: pip install requests)
+# UniFi Controller or UniFi OS console device status (needs: pip install requests)
 UNIFI_URL=https://unifi.example.com:8443 UNIFI_PASSWORD=... \
     python3 -m src.monitoring_unifi
 
@@ -150,8 +151,9 @@ src/
   watch.py                 live stability monitor
   network_discovery.py     concurrent local network scanner
   reporting.py             terminal report + summary/advice rendering
-  monitoring_unifi.py      (extra) UniFi Controller monitoring
+  monitoring_unifi.py      (extra) UniFi Controller / UniFi OS monitoring
   monitoring_cisco.py      (extra) Cisco IOS monitoring
+  envfile.py               (extra) minimal .env loader for the helpers
 tests/                     stdlib unittest suite (python3 -m unittest discover tests)
 ```
 

@@ -15,7 +15,8 @@ from .netinfo import get_local_ip
 
 PROBE_PORTS = [80, 443, 22, 445, 8080, 62078]  # web, ssh, smb, alt-web, iOS
 TIMEOUT = 0.4
-OUTPUT_FILE = "./logs/output_devices/network_devices.txt"
+# Next to the per-network history, not wherever the command was run from.
+OUTPUT_FILE = os.path.expanduser("~/.network-manager/scans/network_devices.txt")
 
 
 def _probe_host(ip):
@@ -39,7 +40,7 @@ def _arp_table():
     table = {}
     for line in out.splitlines():
         m = re.search(r"\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-fA-F:]+)", line)
-        if m and m.group(2) != "(incomplete)":
+        if m:  # "(incomplete)" entries never match the MAC pattern
             table[m.group(1)] = m.group(2)
     return table
 
@@ -83,10 +84,13 @@ def discover_network():
             "is_you": ip == local_ip,
         })
 
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    with open(OUTPUT_FILE, "w") as f:
-        for d in devices:
-            f.write(f"{d['ip']}\t{d['mac'] or '-'}\t{d['hostname'] or '-'}\n")
+    try:
+        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+        with open(OUTPUT_FILE, "w") as f:
+            for d in devices:
+                f.write(f"{d['ip']}\t{d['mac'] or '-'}\t{d['hostname'] or '-'}\n")
+    except OSError:
+        pass  # saving a copy is a convenience; the scan result still stands
 
     return devices
 
