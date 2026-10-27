@@ -35,6 +35,7 @@ def _diagnose(findings):
     dns = findings.get("dns") or {}
     services = findings.get("services") or {}
     wifi = findings.get("wifi") or {}
+    speed = findings.get("speed") or {}  # only with --speed
 
     # ── Hard failures, ordered by network layer ──────────────────────
     local_ip = net.get("local_ip")
@@ -138,6 +139,18 @@ def _diagnose(findings):
     latency = conn.get("latency_ms")
     if latency is not None and latency >= 300:
         issues.append(f"latency is very high ({latency:.0f} ms)")
+
+    bloat, bloat_ms = speed.get("bufferbloat"), speed.get("bufferbloat_ms")
+    if bloat in ("moderate", "severe"):
+        issues.append(f"latency jumps by {bloat_ms} ms when the link is busy "
+                      "(bufferbloat)" if bloat_ms is not None else
+                      "connections time out when the link is busy (bufferbloat)")
+        actions.append("pause uploads and cloud sync during calls")
+
+    upload = speed.get("upload_mbps")
+    if upload is not None and upload < 1.5:
+        issues.append(f"upload is only {upload:.1f} Mbps")
+        actions.append("turn your camera off on video calls")
 
     if dns.get("nxdomain_hijack"):
         issues.append("DNS answers are being tampered with")
