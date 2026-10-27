@@ -64,17 +64,40 @@ def get_dns_servers():
 
 
 def get_ssid(interface=None):
-    """Current Wi-Fi network name, if connected via Wi-Fi (macOS only)."""
+    """Current Wi-Fi network name, if connected via Wi-Fi (macOS only).
+
+    macOS 14.4+ hides the SSID from unprivileged tools ("<redacted>");
+    that is treated as unknown, never as a real network name.
+    """
     if sys.platform != "darwin":
         return None
     interface = interface or "en0"
     out = _run(["ipconfig", "getsummary", interface])
     m = re.search(r"^\s+SSID\s*:\s*(.+)$", out, re.M)
-    if m:
+    if m and m.group(1).strip() != "<redacted>":
         return m.group(1).strip()
     out = _run(["networksetup", "-getairportnetwork", interface])
     m = re.search(r"Current Wi-Fi Network:\s*(.+)", out)
     return m.group(1).strip() if m else None
+
+
+def get_gateway_mac(gateway):
+    """MAC address of the router from the ARP/neighbour cache, or None.
+
+    Identifies a network far better than its gateway IP (192.168.1.1 is
+    everywhere), and needs no privileges even where the SSID is hidden.
+    """
+    if not gateway:
+        return None
+    if sys.platform == "darwin":
+        out = _run(["arp", "-n", gateway])
+    else:
+        out = _run(["ip", "neigh", "show", gateway])
+    m = re.search(r"\b([0-9a-fA-F]{1,2}(?::[0-9a-fA-F]{1,2}){5})\b", out)
+    if not m:
+        return None
+    # macOS drops leading zeros ("a:b:c..."); normalize for a stable key.
+    return ":".join(f"{int(b, 16):02x}" for b in m.group(1).split(":"))
 
 
 def collect(report):
@@ -123,4 +146,5 @@ def collect(report):
         )
 
     return {"ssid": ssid, "interface": iface, "local_ip": local_ip,
-            "gateway": gateway, "dns_servers": dns}
+            "gateway": gateway, "gateway_mac": get_gateway_mac(gateway),
+            "dns_servers": dns}

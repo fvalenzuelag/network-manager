@@ -1,7 +1,8 @@
 """Per-network history: remember what each network looked like last time.
 
 Every full check saves a compact snapshot to ~/.network-manager/history/,
-one JSON file per network (keyed by SSID, falling back to gateway IP).
+one JSON file per network (keyed by SSID, falling back to the router's
+MAC address, then its IP — modern macOS hides the SSID).
 On the next visit the tool reports what changed — "SSH worked here last
 week, now it's blocked" is a much stronger signal than a bare failure.
 """
@@ -17,6 +18,8 @@ MAX_RUNS = 50
 
 def _network_key(network):
     name = network.get("ssid")
+    if not name and network.get("gateway_mac"):
+        name = f"router-{network['gateway_mac']}"
     if not name and network.get("gateway"):
         name = f"gateway-{network['gateway']}"
     if not name:

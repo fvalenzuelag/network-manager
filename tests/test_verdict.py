@@ -64,6 +64,16 @@ class TestVerdict(unittest.TestCase):
         self.assertIn("portal", headline)
         self.assertIn("http://login.x", action)
 
+    def test_portal_blocking_direct_ip_still_says_log_in(self):
+        # Portals commonly drop all traffic until login; that must not be
+        # blamed on the venue's uplink.
+        status, headline, action = diagnose(base(
+            connectivity={"internet": False, "gateway_reachable": True},
+            portal={"captive_portal": True, "portal_url": "http://login.x"}))
+        self.assertEqual(status, "warn")
+        self.assertIn("portal", headline)
+        self.assertIn("http://login.x", action)
+
     def test_tls_interception_is_a_hard_fail(self):
         status, headline, _ = diagnose(base(portal={"tls_interception": True}))
         self.assertEqual(status, "fail")

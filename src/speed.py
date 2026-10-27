@@ -4,6 +4,7 @@ Downloads for a few seconds and reports throughput. Deliberately short —
 on metered or in-flight Wi-Fi you don't want a full speed test.
 """
 
+import http.client
 import time
 import urllib.request
 
@@ -25,7 +26,7 @@ def measure(max_seconds=MAX_SECONDS):
                 if not chunk or elapsed >= max_seconds:
                     break
                 total += len(chunk)
-    except OSError:
+    except (OSError, http.client.HTTPException):  # e.g. IncompleteRead
         return None
     elapsed = time.monotonic() - start
     if total == 0 or elapsed == 0:
