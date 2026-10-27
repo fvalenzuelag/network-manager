@@ -132,6 +132,8 @@ configs/
 *.ini
 *.yaml
 *.yml
+# ...but GitHub Actions workflows belong in the repo
+!.github/workflows/*.yml
 
 # Log files
 logs/
