@@ -97,7 +97,7 @@ still zero dependencies) and opens the browser:
 |---|---|
 | **Network** | Wi-Fi SSID, interface, local IP (flags self-assigned/DHCP failure), gateway, DNS servers, active VPN (results would describe the tunnel), router impersonation / ARP spoofing |
 | **Wi-Fi** (macOS) | Signal quality (RSSI/SNR/channel/PHY rate), and security — warns on open or WEP networks |
-| **Connectivity** | Gateway reachability (ping, or TCP for routers that ignore ping), internet reachability by direct IP (distinguishes "no internet" from "broken DNS"), IPv6 health, latency, packet loss split into Wi-Fi link vs venue uplink |
+| **Connectivity** | Gateway reachability (ping, or TCP for routers that ignore ping), internet reachability by direct IP (distinguishes "no internet" from "broken DNS"), IPv6 health, latency, packet loss split into Wi-Fi link vs venue uplink, path MTU — catches MTU blackholes where oversized packets vanish and VPNs/calls hang |
 | **Captive portal** | Probes the same endpoints macOS/Android/Firefox use (most must agree); extracts the portal login URL when one is found |
 | **TLS interception** | Verifies the certificate chain of a well-known site — detects HTTPS man-in-the-middle, after ruling out a wrong system clock |
 | **DNS** | System resolution, direct access to public resolvers (are you forced through the network's DNS?), DNS-over-HTTPS (so "use DoH" is advice that's known to work here), NXDOMAIN hijack detection |
@@ -124,8 +124,8 @@ failing **layer** and whether anything local can fix it:
 
 It distinguishes: not connected → DHCP failure → captive portal → dead
 access point → dead venue uplink → wrong system clock → HTTPS interception →
-dead DNS → degraded (weak signal, link vs uplink packet loss, hijacked DNS,
-blocked services, broken IPv6) → healthy.
+dead DNS → degraded (weak signal, link vs uplink packet loss, MTU blackhole,
+hijacked DNS, blocked services, broken IPv6) → healthy.
 
 Two traps it avoids: a **wrong clock** fails certificate checks exactly like
 HTTPS interception, so the clock is checked against live server time before

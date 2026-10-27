@@ -145,6 +145,11 @@ def _diagnose(findings):
         actions.append("moving around won't help — expect instability, "
                        "consider mobile data for calls")
 
+    if conn.get("mtu_blackhole"):
+        issues.append(f"packets over {conn.get('path_mtu')} bytes vanish "
+                      "silently (MTU blackhole) — VPNs and calls may hang")
+        actions.append(f"set your MTU to {conn.get('path_mtu')}")
+
     latency = conn.get("latency_ms")
     if latency is not None and latency >= 300:
         issues.append(f"latency is very high ({latency:.0f} ms)")
