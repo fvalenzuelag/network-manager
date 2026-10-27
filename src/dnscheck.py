@@ -8,6 +8,7 @@ import random
 import secrets
 import socket
 import struct
+import threading
 
 PUBLIC_RESOLVERS = {"1.1.1.1": "Cloudflare", "8.8.8.8": "Google"}
 TEST_DOMAIN = "example.com"
@@ -70,16 +71,25 @@ def query(name, server, timeout=3.0):
 
 
 def system_resolve(name, timeout=4.0):
-    """Resolve using the system resolver. Returns list of IPs or None."""
-    old = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(timeout)
-    try:
-        infos = socket.getaddrinfo(name, None, socket.AF_INET)
-        return list({i[4][0] for i in infos})
-    except socket.gaierror:
-        return None
-    finally:
-        socket.setdefaulttimeout(old)
+    """Resolve using the system resolver. Returns list of IPs or None.
+
+    getaddrinfo ignores socket timeouts and can block for the OS resolver's
+    full retry cycle on a dead DNS, so it runs in a daemon thread that we
+    simply stop waiting for (a daemon thread never blocks interpreter exit).
+    """
+    result = []
+
+    def resolve():
+        try:
+            infos = socket.getaddrinfo(name, None, socket.AF_INET)
+            result.append(list({i[4][0] for i in infos}))
+        except (socket.gaierror, UnicodeError):
+            pass
+
+    t = threading.Thread(target=resolve, daemon=True)
+    t.start()
+    t.join(timeout)
+    return result[0] if result else None
 
 
 def collect(report):
@@ -115,6 +125,13 @@ def collect(report):
         )
 
     # NXDOMAIN hijack: a random domain that cannot exist must NOT resolve.
+    # Meaningless when nothing resolves at all — a dead DNS would pass.
+    if not ips:
+        findings["nxdomain_hijack"] = None
+        report.add("DNS hijack check", "info",
+                   "skipped — system DNS isn't resolving anything")
+        return findings
+
     fake = f"{secrets.token_hex(9)}-diag.com"
     hijack_ips = system_resolve(fake)
     findings["nxdomain_hijack"] = bool(hijack_ips)

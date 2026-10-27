@@ -34,6 +34,16 @@ def diagnose(findings):
                 "Reconnect to the network; this is a local configuration "
                 "problem, not an internet outage.")
 
+    # Before the internet check: portals often drop all direct-IP traffic
+    # until you log in, so "no internet" plus a portal means "log in",
+    # not "the uplink is down".
+    if portal.get("captive_portal"):
+        url = portal.get("portal_url")
+        return ("warn",
+                "The network works, but it's holding you at a captive portal.",
+                "Log in at " + (url or "the portal page")
+                + " (re-run with --open to launch it), then check again.")
+
     if not conn.get("internet"):
         if conn.get("gateway_reachable"):
             return ("fail",
@@ -46,13 +56,6 @@ def diagnose(findings):
                 "access point itself looks dead.",
                 "Reconnect once; if it persists, that AP is broken — try a "
                 "different network.")
-
-    if portal.get("captive_portal"):
-        url = portal.get("portal_url")
-        return ("warn",
-                "The network works, but it's holding you at a captive portal.",
-                "Log in at " + (url or "the portal page")
-                + " (re-run with --open to launch it), then check again.")
 
     if portal.get("tls_interception"):
         return ("fail",

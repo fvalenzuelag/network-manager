@@ -6,6 +6,7 @@ hit — the edge is an IATA airport code, which happens to be the perfect
 answer format for a travel tool. Also reveals whether WARP/a proxy is on.
 """
 
+import http.client
 import urllib.request
 
 TRACE_URL = "https://1.1.1.1/cdn-cgi/trace"
@@ -18,7 +19,7 @@ def trace(timeout=6):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read(4096).decode("utf-8", "replace")
-    except OSError:
+    except (OSError, http.client.HTTPException):
         return None
     fields = dict(
         line.split("=", 1) for line in body.splitlines() if "=" in line)

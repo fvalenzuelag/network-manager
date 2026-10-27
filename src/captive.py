@@ -5,6 +5,7 @@ network returns the exact expected response; a captive portal intercepts the
 request and answers with a redirect or a login page instead.
 """
 
+import http.client
 import ssl
 import socket
 import urllib.request
@@ -42,7 +43,8 @@ def _probe(args):
         if 300 <= e.code < 400 and location:
             return ("portal", location)
         return ("portal", f"HTTP {e.code} from {url}")
-    except (urllib.error.URLError, socket.timeout, OSError):
+    except (urllib.error.URLError, socket.timeout, OSError,
+            http.client.HTTPException):
         return ("unreachable", url)
 
 
